@@ -1,0 +1,65 @@
+name: App bauen
+
+on:
+  push:
+    branches: [ main, "claude/**" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Code holen
+        uses: actions/checkout@v4
+
+      - name: Java 17 einrichten
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Gradle einrichten
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Tests der Rechen-Engine
+        run: ./gradlew --no-daemon :core:test
+
+      - name: App (APK) bauen
+        run: ./gradlew --no-daemon :app:assembleRelease
+
+      - name: APK umbenennen
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/release/app-release.apk out/VitalCoach.apk
+          ls -la out
+
+      - name: APK als Artefakt speichern
+        uses: actions/upload-artifact@v4
+        with:
+          name: VitalCoach-apk
+          path: out/VitalCoach.apk
+
+      - name: Release zum Herunterladen erstellen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: VitalCoach 1.0.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: out/VitalCoach.apk
+          body: |
+            **So installierst du die App auf deinem Handy:**
+            1. Tippe unten bei „Assets“ auf **VitalCoach.apk** und lade die Datei herunter.
+            2. Öffne die heruntergeladene Datei (Benachrichtigung oder „Eigene Dateien“ → Downloads).
+            3. Erlaube beim ersten Mal „Installation aus dieser Quelle“ und tippe auf **Installieren**.
+            4. Für Updates einfach die neueste Version herunterladen und darüber installieren – deine Einstellungen bleiben erhalten.
+
+            Gebaut aus Commit ${{ github.sha }} (Branch ${{ github.ref_name }}).
