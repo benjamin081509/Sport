@@ -171,7 +171,26 @@ enum class HrMaxSource(val label: String) {
     DEFAULT("Standardwert – bitte Alter eintragen"),
 }
 
-data class HrZone(val number: Int, val name: String, val lowBpm: Int, val highBpm: Int, val purpose: String)
+data class HrZone(
+    val number: Int,
+    val name: String,
+    val lowBpm: Int,
+    val highBpm: Int,
+    val purpose: String,
+    /** Lauftempo am unteren Zonenrand (langsamer), Sekunden pro km. */
+    val paceSlowSecKm: Double? = null,
+    /** Lauftempo am oberen Zonenrand (schneller), Sekunden pro km. */
+    val paceFastSecKm: Double? = null,
+) {
+    /** z. B. „7:01–6:01 /km“ oder null, wenn keine Pace berechnet werden kann. */
+    val paceText: String?
+        get() {
+            val slow = paceSlowSecKm ?: return null
+            val fast = paceFastSecKm ?: return null
+            fun p(s: Double) = if (s >= 720) "Gehen" else Fmt.pace(s).removeSuffix(" /km")
+            return if (slow >= 720 && fast >= 720) "Gehtempo" else "${p(slow)}–${p(fast)} /km"
+        }
+}
 
 data class FitnessReport(
     val vo2max: Double?,
@@ -193,6 +212,10 @@ data class FitnessReport(
     val hrvNormalLow: Double?,
     val hrvNormalHigh: Double?,
     val zones: List<HrZone>,
+    /** Woher die Pace-Angaben der Zonen stammen (null = keine Pace verfügbar). */
+    val zonePaceSource: String? = null,
+    /** Laufgeschwindigkeit (m/min) pro Anteil Herzfrequenzreserve – persönlicher Puls-Tempo-Zusammenhang. */
+    val speedPerHrr: Double? = null,
     val weightKg: Double?,
     val heightCm: Double?,
     val bmi: Double?,

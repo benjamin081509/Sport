@@ -123,7 +123,9 @@ object Explain {
             "Priorität: 1) VO2max-Messung der Uhr (falls über Health Connect verfügbar). 2) Aus deinen Läufen: ACSM-Laufgleichung " +
                 "(VO2 = 3,5 + 0,2 × Geschwindigkeit in m/min) und Herzfrequenzreserve (Swain & Leutholtz 1997), Median der letzten 5 Läufe. " +
                 "3) Uth-Formel (15,3 × HFmax / Ruhepuls). Kategorien: Cooper-Institut-Normwerte. Fitnessalter: Altersmittelwerte der " +
-                "HUNT-Studie (Loe et al. 2013)."
+                "HUNT-Studie (Loe et al. 2013). Pace je Herzfrequenzzone: Laufgeschwindigkeit ≈ k × Anteil der Herzfrequenzreserve; " +
+                "k = Median aus deinen letzten Läufen (Ø Tempo ÷ Ø %HFR), ohne Läufe aus der VO2max ((VO2max − 3,5) ÷ 0,2). Gilt für " +
+                "flaches Gelände – bei Hitze, Steigungen oder Müdigkeit ist der Puls bei gleichem Tempo höher."
         MetricKey.ACTIVITY ->
             "Schritte und Kalorien kommen direkt aus Samsung Health (über Health Connect, ohne Doppelzählung von Handy und Uhr). " +
                 "Aktivminuten nach WHO: Minuten mit ≥ 40 % Herzfrequenzreserve zählen einfach, ab 60 % doppelt; Ziel 150 pro Woche."

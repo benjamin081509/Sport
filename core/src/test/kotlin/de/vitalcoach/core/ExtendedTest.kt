@@ -78,6 +78,21 @@ class ExtendedTest {
     }
 
     @Test
+    fun zonesHavePersonalPace() {
+        val zones = r.fitness.zones
+        zones.forEach { println("Zone ${it.number} ${it.name}: ${it.lowBpm}–${it.highBpm} bpm → ${it.paceText}") }
+        println("Quelle: ${r.fitness.zonePaceSource}")
+        assertEquals(5, zones.size)
+        assertTrue(zones.all { it.paceSlowSecKm != null && it.paceFastSecKm != null })
+        // höhere Zone = schnellere Pace
+        assertTrue(zones.zipWithNext().all { (a, b) -> b.paceFastSecKm!! < a.paceFastSecKm!! })
+        // Demo-Läufer läuft locker ca. 6:20 /km bei ca. 142 bpm → muss in Zone 2 liegen
+        val z2 = zones.first { it.number == 2 }
+        assertTrue("Zone 2: ${z2.paceText}", 380.0 <= z2.paceSlowSecKm!! + 15 && 380.0 >= z2.paceFastSecKm!! - 15)
+        assertTrue(r.fitness.zonePaceSource!!.contains("Läufe"))
+    }
+
+    @Test
     fun snapshotRoundTrip() {
         val snaps = SnapshotCodec.fromResult(r)
         val text = SnapshotCodec.encode(snaps)

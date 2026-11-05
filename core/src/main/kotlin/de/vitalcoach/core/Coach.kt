@@ -417,7 +417,7 @@ object Coach {
     }
 
     private fun zoneRange(r: AnalysisResult, zone: Int): String =
-        r.fitness.zones.firstOrNull { it.number == zone }?.let { "${it.lowBpm}–${it.highBpm} bpm" } ?: "–"
+        r.fitness.zones.firstOrNull { it.number == zone }?.let { z -> "${z.lowBpm}–${z.highBpm} bpm" + (z.paceText?.let { ", ca. $it" } ?: "") } ?: "–"
 
     private fun noData(area: String, text: String) = CoachText("$area: noch keine Daten", text, emptyList(), Tone.NEUTRAL)
 }

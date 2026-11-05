@@ -178,8 +178,37 @@ fun ZonesCard(r: AnalysisResult) {
                     Text("Zone ${z.number} · ${z.name}", style = MaterialTheme.typography.titleSmall)
                     Text(z.purpose, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text("${z.lowBpm}–${z.highBpm}", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.width(8.dp))
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("${z.lowBpm}–${z.highBpm} bpm", style = MaterialTheme.typography.titleMedium)
+                    val pace = z.paceText
+                    if (pace != null) {
+                        Text("🏃 $pace", style = MaterialTheme.typography.titleSmall, color = Palette.Zones[z.number])
+                    }
+                }
             }
+        }
+        val src = f.zonePaceSource
+        Spacer(Modifier.height(6.dp))
+        if (src != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ProvenanceChip(de.vitalcoach.core.Provenance.ESTIMATED)
+                Spacer(Modifier.width(8.dp))
+                Text("Lauf-Pace $src", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Gilt für flaches Gelände und normale Temperaturen. Bei Hitze, Steigungen, Wind oder Müdigkeit ist dein Puls bei gleichem Tempo höher – " +
+                    "dann richte dich nach dem Puls, nicht nach der Pace. Je mehr Läufe mit GPS du aufzeichnest, desto genauer wird die Pace.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            Text(
+                "Die passende Lauf-Pace pro Zone erscheint, sobald Läufe mit GPS oder eine VO2max vorliegen.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

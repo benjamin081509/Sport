@@ -103,8 +103,13 @@ private fun RecommendationCard(r: AnalysisResult, vm: MainViewModel) {
             Spacer(Modifier.height(12.dp))
             KeyValue("Zielbelastung", "${rec.targetLoadLow}–${rec.targetLoadHigh} TRIMP")
             KeyValue("Entspricht ca.", "${rec.zone2MinLow}–${rec.zone2MinHigh} min in Zone 2")
-            r.fitness.zones.firstOrNull { it.number == 2 }?.let { KeyValue("Deine Zone 2", "${it.lowBpm}–${it.highBpm} bpm") }
+            r.fitness.zones.firstOrNull { it.number == 2 }?.let { z ->
+                KeyValue("Deine Zone 2", "${z.lowBpm}–${z.highBpm} bpm")
+                z.paceText?.let { KeyValue("Lauf-Pace in Zone 2", it) }
+            }
         }
+        Spacer(Modifier.height(10.dp))
+        ZonesCompact(r)
     }
 }
 
@@ -224,6 +229,27 @@ private fun IntensityCard(r: AnalysisResult) {
         )
         Spacer(Modifier.height(4.dp))
         Text("${Fmt.int(l.whoMinutes7)} von 150 Minuten (intensive Minuten zählen doppelt)", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/** Kompakte Übersicht: Pulsbereich und Lauf-Pace je Zone. */
+@Composable
+fun ZonesCompact(r: AnalysisResult) {
+    val zones = r.fitness.zones
+    if (zones.isEmpty()) return
+    Text("Deine Zonen mit Lauf-Pace", style = MaterialTheme.typography.titleSmall)
+    Spacer(Modifier.height(4.dp))
+    zones.forEach { z ->
+        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+            ToneDotColor(Palette.Zones[z.number])
+            Spacer(Modifier.width(8.dp))
+            Text("Z${z.number} ${z.name}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text("${z.lowBpm}–${z.highBpm} bpm", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text(z.paceText ?: "–", style = MaterialTheme.typography.titleSmall, color = Palette.Zones[z.number])
+        }
+    }
+    r.fitness.zonePaceSource?.let {
+        Text("Pace $it · gilt für flaches Gelände", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

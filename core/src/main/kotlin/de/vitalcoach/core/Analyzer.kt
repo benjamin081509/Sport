@@ -597,6 +597,30 @@ object Analyzer {
         }
         val catIdx = if (vo2 != null && age != null) FitnessMath.vo2Category(vo2, age, sex) else null
 
+        // Persönlicher Puls-Tempo-Zusammenhang: Geschwindigkeit ≈ k × Anteil der Herzfrequenzreserve
+        // (ACSM-Laufgleichung + %HFR ≈ %VO2-Reserve, Swain & Leutholtz 1997), k aus deinen Läufen.
+        val ratios = workouts.filter { w ->
+            w.workout.type == SportType.RUNNING && (w.workout.distanceMeters ?: 0.0) >= 1000 && w.durationMin >= 15 &&
+                w.avgHr != null && ChronoUnit.DAYS.between(w.workout.start.atZone(zone).toLocalDate(), today) <= 120
+        }.mapNotNull { w ->
+            val f = (w.avgHr!! - restRef) / (hrMax - restRef)
+            val speed = w.workout.distanceMeters!! / w.durationMin
+            if (f in 0.5..0.92 && speed * 0.06 in 6.0..22.0) speed / f else null
+        }
+        val (k, paceSource) = when {
+            ratios.size >= 2 -> Stats.median(ratios.takeLast(10)) to "aus ${minOf(ratios.size, 10)} deiner Läufe (letzte 4 Monate)"
+            vo2 != null -> (vo2 - 3.5) / 0.2 to "aus deiner VO2max geschätzt (noch zu wenige Läufe mit GPS)"
+            else -> null to null
+        }
+        val zones = HeartMath.zones(restRef, hrMax).map { z ->
+            if (k == null || k <= 0) {
+                z
+            } else {
+                val fLow = 0.4 + 0.1 * z.number
+                z.copy(paceSlowSecKm = 60000.0 / (k * fLow), paceFastSecKm = 60000.0 / (k * (fLow + 0.1)))
+            }
+        }
+
         val last7 = days.takeLast(7)
         val last30 = days.takeLast(30)
         val rhrSeries = days.takeLast(60).withIndex().filter { it.value.restingHr != null }
@@ -625,7 +649,9 @@ object Analyzer {
             hrvBaseline = hrvB?.let { exp(it.mean) },
             hrvNormalLow = hrvB?.takeIf { it.n >= 7 }?.let { exp(it.mean - it.sd) },
             hrvNormalHigh = hrvB?.takeIf { it.n >= 7 }?.let { exp(it.mean + it.sd) },
-            zones = HeartMath.zones(restRef, hrMax),
+            zones = zones,
+            zonePaceSource = paceSource,
+            speedPerHrr = k,
             weightKg = weight,
             heightCm = height,
             bmi = bmi,
@@ -1143,7 +1169,8 @@ object Analyzer {
             efRecent = efRecent,
             efPrevious = efPrev,
             efChangePct = if (efRecent != null && efPrev != null) (efRecent / efPrev - 1) * 100 else null,
-            paceAtZ2SecKm = if (efRecent != null && z2Hr != null) 60000.0 / (efRecent * z2Hr) else null,
+            paceAtZ2SecKm = fitness.speedPerHrr?.let { 60000.0 / (it * 0.65) }
+                ?: if (efRecent != null && z2Hr != null) 60000.0 / (efRecent * z2Hr) else null,
             z2Hr = z2Hr,
             runPaces = runs.mapNotNull { w -> w.paceSecPerKm?.let { w.workout.start.atZone(zone).toLocalDate() to it } },
             efSeries = steady.map { it.workout.start.atZone(zone).toLocalDate() to ef(it) },
