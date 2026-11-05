@@ -22,9 +22,15 @@ object DemoData {
         weightKg = 78.0,
         sleepGoalHours = 8.0,
         stepGoal = 8000,
+        nicotine = Nicotine.NEVER,
     )
 
-    fun generate(zone: ZoneId = ZoneId.systemDefault(), now: Instant = Instant.now(), days: Int = 90): HealthData {
+    private val HOUR_WEIGHTS = mapOf(
+        7 to 0.06, 8 to 0.10, 9 to 0.04, 10 to 0.04, 11 to 0.05, 12 to 0.10, 13 to 0.06, 14 to 0.04,
+        15 to 0.04, 16 to 0.05, 17 to 0.10, 18 to 0.08, 19 to 0.08, 20 to 0.08, 21 to 0.05, 22 to 0.03,
+    )
+
+    fun generate(zone: ZoneId = ZoneId.systemDefault(), now: Instant = Instant.now(), days: Int = 365): HealthData {
         val rnd = Random(42)
         val today = now.atZone(zone).toLocalDate()
         val hr = ArrayList<HeartRateSample>(days * 300)
@@ -35,6 +41,7 @@ object DemoData {
         val spo2 = mutableListOf<TimedValue>()
         val resp = mutableListOf<TimedValue>()
         val weight = mutableListOf<TimedValue>()
+        val hourly = mutableListOf<HourlySteps>()
         var fatigue = 0.0
 
         for (k in days - 1 downTo 0) {
@@ -116,32 +123,74 @@ object DemoData {
                     hr += HeartRateSample(tt, bpm.roundToInt())
                     tt = tt.plusSeconds(10)
                 }
+                // Pulserholung nach Trainingsende (2,5 Minuten)
+                val endHr = hr.last().bpm.toDouble()
+                var pt = end
+                while (pt.isBefore(end.plusSeconds(150))) {
+                    val sec = Duration.between(end, pt).seconds.toDouble()
+                    val drop = (if (type == SportType.STRENGTH) 18.0 else 27.0) * (1 - kotlin.math.exp(-sec / 55.0)) / (1 - kotlin.math.exp(-60.0 / 55.0))
+                    hr += HeartRateSample(pt, (endHr - drop + rnd.nextDouble(-2.0, 2.0)).roundToInt())
+                    pt = pt.plusSeconds(5)
+                }
                 val dist = when (type) {
                     SportType.RUNNING -> dur * 60.0 / (if (title == "Intervalle") 345.0 else 380.0) * 1000.0
                     SportType.CYCLING -> dur / 60.0 * 24_000.0
                     else -> null
                 }
                 workoutKcal = dur * (if (type == SportType.STRENGTH) 6.0 else 11.0)
-                workouts += Workout(workoutStart, end, type, title, dist, workoutKcal)
+                workouts += Workout(
+                    workoutStart, end, type, title, dist, workoutKcal,
+                    steps = if (type == SportType.RUNNING) (dur * rnd.nextDouble(162.0, 170.0)).toLong() else null,
+                    avgPowerW = if (type == SportType.CYCLING) rnd.nextDouble(165.0, 185.0) else null,
+                )
                 fatigue = (fatigue * 0.6 + dur / 60.0 * (if (title == "Intervalle") 1.6 else 1.0)).coerceAtMost(3.0)
             } else {
                 fatigue *= 0.55
+            }
+
+            // ---- Schritte je Stunde ----
+            val dayTotal = rnd.nextInt(5500, 13500).toLong()
+            val workday = date.dayOfWeek.value <= 5
+            val stepsByHour = HashMap<Int, Long>()
+            for ((h, w) in HOUR_WEIGHTS) stepsByHour[h] = (dayTotal * w * rnd.nextDouble(0.5, 1.5)).toLong()
+            workouts.lastOrNull()?.takeIf { it.start.atZone(zone).toLocalDate() == date }?.steps?.let { ws ->
+                val h = workoutStart.atZone(zone).hour
+                stepsByHour[h] = (stepsByHour[h] ?: 0L) + ws
+            }
+            if (workday) {
+                // Bürotag: lange Sitzphasen vormittags und nachmittags
+                listOf(9, 10, 14, 15).forEach { stepsByHour[it] = rnd.nextLong(30, 220) }
             }
 
             // ---- Tages-Herzfrequenz alle 10 Minuten (bis jetzt) ----
             var dt = wake
             val dayEnd = date.atTime(LocalTime.of(23, 0)).atZone(zone).toInstant()
             while (dt.isBefore(dayEnd) && dt.isBefore(now)) {
-                val inWorkout = workouts.lastOrNull()?.let { !dt.isBefore(it.start) && !dt.isAfter(it.end) } ?: false
-                if (!inWorkout) hr += HeartRateSample(dt, (rhrBase + rnd.nextDouble(12.0, 38.0)).roundToInt())
+                val inWorkout = workouts.lastOrNull()?.let { !dt.isBefore(it.start) && !dt.isAfter(it.end.plusSeconds(150)) } ?: false
+                if (!inWorkout) {
+                    val hour = dt.atZone(zone).hour
+                    val st = stepsByHour[hour] ?: 0L
+                    val base = when {
+                        st >= 800 -> rnd.nextDouble(28.0, 55.0)
+                        st >= 250 -> rnd.nextDouble(14.0, 28.0)
+                        else -> rnd.nextDouble(6.0, 20.0)
+                    }
+                    val stress = if (workday && hour in listOf(10, 11, 14, 15) && rnd.nextDouble() < 0.5) rnd.nextDouble(5.0, 14.0) else 0.0
+                    hr += HeartRateSample(dt, (rhrBase + base + stress).roundToInt())
+                }
                 dt = dt.plusSeconds(600)
             }
 
-            val steps = if (date.isEqual(today)) {
-                val frac = (Duration.between(date.atStartOfDay(zone).toInstant(), now).toMinutes() / 1440.0).coerceIn(0.0, 1.0)
-                (rnd.nextInt(6000, 12000) * frac).toLong()
-            } else {
-                rnd.nextInt(5500, 13500).toLong() + if (plan?.first == SportType.RUNNING) 7000 else 0
+            var steps = 0L
+            for (h in 0 until 24) {
+                val hs = date.atTime(h, 0).atZone(zone).toInstant()
+                if (!hs.plusSeconds(3600).isAfter(now) || hs.isBefore(now)) {
+                    val v = if (hs.plusSeconds(3600).isAfter(now)) ((stepsByHour[h] ?: 0L) * Duration.between(hs, now).seconds / 3600) else (stepsByHour[h] ?: 0L)
+                    if (hs.isBefore(now)) {
+                        steps += v
+                        if (k < 120) hourly += HourlySteps(hs, v)
+                    }
+                }
             }
             val active = steps * 0.035 + workoutKcal
             daily += DailyActivity(date, steps, steps * 0.75, active, 1780.0 + active)
@@ -157,6 +206,11 @@ object DemoData {
             respiratoryRate = resp,
             weight = weight,
             bodyFat = listOf(TimedValue(today.minusDays(3).atTime(7, 30).atZone(zone).toInstant(), 17.5)),
+            bloodPressure = listOf(
+                BloodPressure(today.minusDays(20).atTime(8, 0).atZone(zone).toInstant(), 124.0, 80.0),
+                BloodPressure(today.minusDays(6).atTime(8, 0).atZone(zone).toInstant(), 119.0, 77.0),
+            ),
+            hourlySteps = hourly,
             zone = zone,
             fetchedAt = now,
             isDemo = true,

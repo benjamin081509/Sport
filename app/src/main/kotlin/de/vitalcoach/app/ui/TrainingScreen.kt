@@ -56,6 +56,22 @@ fun TrainingScreen(state: UiState, vm: MainViewModel, padding: PaddingValues) {
         item { DailyLoadCard(r) }
         item { IntensityCard(r) }
         item {
+            val p = r.performance
+            SectionCard(title = "Leistungsentwicklung", icon = Icons.Filled.Insights, onClick = { vm.open(Route.Metric(MetricKey.PERFORMANCE)) }) {
+                val chg = p.efChangePct
+                Text(
+                    when {
+                        chg == null -> "Tippe für VO2max, aerobe Effizienz, Laktatschwelle und Pace-Entwicklung."
+                        chg >= 2 -> "Bei gleichem Puls läufst du ${Fmt.num(chg, 1)} % schneller als vor 4 Wochen."
+                        chg <= -2 -> "Bei gleichem Puls bist du ${Fmt.num(-chg, 1)} % langsamer als vor 4 Wochen."
+                        else -> "Deine aerobe Effizienz ist stabil (${Fmt.signed(chg, 1)} %)."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                KeyValue("Belastung 7 / 28 / 90 Tage", "${Fmt.int(p.load7)} / ${Fmt.int(p.load28)} / ${Fmt.int(p.load90)} TRIMP")
+            }
+        }
+        item {
             Text("Letzte Trainings", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 8.dp))
         }
         if (r.workouts.isEmpty()) {

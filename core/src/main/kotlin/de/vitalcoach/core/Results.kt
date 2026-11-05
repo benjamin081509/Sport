@@ -7,6 +7,13 @@ import java.time.ZoneId
 /** Ampel-Bewertung, die in der Oberfläche als Farbe dargestellt wird. */
 enum class Tone { GOOD, OK, WARN, BAD, NEUTRAL }
 
+/** Herkunft eines Wertes – wird in der App bei jeder Kennzahl angezeigt. */
+enum class Provenance(val label: String, val description: String) {
+    MEASURED("Gemessen", "Originaldaten deiner Uhr (Samsung Health / Health Connect)"),
+    CALCULATED("Berechnet", "Aus mehreren Messwerten mathematisch ermittelt"),
+    ESTIMATED("Geschätzt", "Schätzung oder Prognose – mit Unsicherheit behaftet"),
+}
+
 enum class Confidence(val label: String) {
     HIGH("hoch"),
     MEDIUM("mittel"),
@@ -30,6 +37,7 @@ enum class RhrSource(val label: String) {
     SLEEP("niedrigster 30-Minuten-Schnitt im Schlaf"),
     DEVICE("Ruhepuls-Messung der Uhr"),
     DAY("niedrigster 30-Minuten-Schnitt des Tages"),
+    HISTORY("gespeicherter Wert aus früherer Auswertung"),
 }
 
 data class SleepNight(
@@ -97,6 +105,29 @@ data class DayMetrics(
     val readiness: Score?,
     val sleepDebtH: Double?,
     val illnessFlag: Boolean,
+    /** true, wenn die Tageslast aus echten Pulsdaten berechnet wurde (nicht geschätzt). */
+    val loadFromHr: Boolean = false,
+    /** Zeitgewichteter Tagesdurchschnitt der Herzfrequenz. */
+    val avgHr: Double? = null,
+    val sleepAvgHr: Double? = null,
+    /** Nächtliche Pulsabsenkung gegenüber dem Vorabend in Prozent. */
+    val hrDipPct: Double? = null,
+    /** Lage des niedrigsten Pulses in der Nacht (0 = Einschlafen, 1 = Aufwachen). */
+    val lowestHrPos: Double? = null,
+    val nightRecovery: Score? = null,
+    val stressIndex: Double? = null,
+    val activeHours: Int? = null,
+    val inactiveHours: Int? = null,
+    /** Belastung außerhalb von Trainings (TRIMP aus Alltagspuls ≥ 35 % HFR). */
+    val everydayLoad: Double = 0.0,
+    /** Regenerationsstand am Morgen (0–100 %) aus dem Erholungszeit-Modell. */
+    val regenProgress: Int? = null,
+    val lateWorkout: Boolean = false,
+    /** Empfohlene Schlafdauer für die kommende Nacht (Minuten). */
+    val sleepNeedMin: Double? = null,
+    val weight: Double? = null,
+    val acuteLoad: Double = 0.0,
+    val chronicLoad: Double = 0.0,
 )
 
 data class WorkoutAnalysis(
@@ -228,6 +259,19 @@ data class SleepReport(
     val avgScore7: Double?,
     val nights: Int,
     val goalHours: Double,
+    val debt14H: Double? = null,
+    /** Sleep Regularity Index (Phillips et al. 2017), 14 Tage, 0–100. */
+    val sri: Double? = null,
+    /** Geschätzter persönlicher Schlafbedarf (Stunden). */
+    val personalNeedH: Double? = null,
+    val personalNeedNights: Int = 0,
+    val needTonightMin: Double? = null,
+    val needReasons: List<String> = emptyList(),
+    val recommendedBedtimeMin: Double? = null,
+    val avgInBed7Min: Double? = null,
+    val nightRecovery: Score? = null,
+    val nightRestingHr: Double? = null,
+    val nightHrv: Double? = null,
 )
 
 data class ActivityReport(
@@ -240,6 +284,210 @@ data class ActivityReport(
     val activeKcal7Avg: Double?,
     val totalKcal7Avg: Double?,
     val whoMinutes7: Double,
+    val activeHoursToday: Int? = null,
+    val inactiveHoursToday: Int? = null,
+    val inactiveHours7Avg: Double? = null,
+    val activeHours7Avg: Double? = null,
+    /** Durchschnittliche Schritte je Stunde des Tages (14 Tage). */
+    val stepsByHour: List<Double> = emptyList(),
+    val movementIndex: Score? = null,
+    val regularity: Int? = null,
+    val stepsCv14: Double? = null,
+    val thisWeek: WeekBalance? = null,
+    val lastWeek: WeekBalance? = null,
+    val everydayLoadToday: Double = 0.0,
+    val everydayLoad7Avg: Double? = null,
+    val everydayShare7: Double? = null,
+    val activeKcalShare7: Double? = null,
+    val hardSessionGapAvgH: Double? = null,
+    val shortGaps28: Int = 0,
+    val runCadence: Double? = null,
+    val hasHourlySteps: Boolean = false,
+)
+
+data class WeekBalance(val steps: Long, val activeMinutes: Double, val load: Double, val activeKcal: Double, val workouts: Int)
+
+data class RecoveryTimeInfo(val workout: WorkoutAnalysis, val hours: Double, val remainingH: Double, val readyAt: Instant)
+
+data class RegenerationReport(
+    val regenerationIndex: Int?,
+    val timeProgress: Int,
+    val remainingHours: Double,
+    val readyAt: Instant?,
+    val binding: RecoveryTimeInfo?,
+    val recent: List<RecoveryTimeInfo>,
+    val fatigueIndex: Int?,
+    val fatigueLabel: String,
+    val fatigueTone: Tone,
+    val strainRel: Double?,
+    val recoveryRel: Double?,
+    val balance: Double?,
+    val balanceLabel: String,
+    val balanceTone: Tone,
+    val load7: Double,
+    val load28: Double,
+    val load90: Double,
+    val overloadSignals: List<String>,
+    val overloadLevel: Int,
+    val overloadLabel: String,
+    val overloadTone: Tone,
+    val hrvTrendPct: Double?,
+    val rhrDeviation: Double?,
+    val rhrDeviationZ: Double?,
+)
+
+data class HrrResult(val date: LocalDate, val title: String, val peak: Int, val drop60: Int, val afterExercise: Boolean)
+
+data class HeartReport(
+    val avgHrToday: Double?,
+    val avgHr7: Double?,
+    val avgHr30: Double?,
+    val sleepAvgHr: Double?,
+    val dipPct: Double?,
+    val dipAvg7: Double?,
+    val lowestHrPos: Double?,
+    val nightCurve: List<Pair<Instant, Double>>,
+    val rhrSd14: Double?,
+    val hrvCv7: Double?,
+    val hrv7: Double?,
+    val hrv30: Double?,
+    val hrv90: Double?,
+    val hrv180: Double?,
+    val hrvWeekly: List<Pair<LocalDate, Double>>,
+    val rhr7: Double?,
+    val rhr30: Double?,
+    val rhr90: Double?,
+    val rhr365: Double?,
+    val rhrWeekly: List<Pair<LocalDate, Double>>,
+    val hrr: List<HrrResult>,
+    val hrrTrend: Double?,
+    val trainingHighHrPct28: Double?,
+)
+
+data class StressReport(
+    val today: Double?,
+    val avg7: Double?,
+    val avg30: Double?,
+    val label: String,
+    val tone: Tone,
+    val byHour: List<Double?>,
+    val restPct: Double?,
+    val highPct: Double?,
+    val nightStress: Double?,
+    val daily: List<Pair<LocalDate, Double?>>,
+    val reliable: Boolean,
+)
+
+data class PerformanceReport(
+    val efRecent: Double?,
+    val efPrevious: Double?,
+    val efChangePct: Double?,
+    val paceAtZ2SecKm: Double?,
+    val z2Hr: Int?,
+    val runPaces: List<Pair<LocalDate, Double>>,
+    val efSeries: List<Pair<LocalDate, Double>>,
+    val lthr: Int?,
+    val lthrDate: LocalDate?,
+    val hardMin28: Double,
+    val peakHr90: Int?,
+    val hardSessions28: Int,
+    val cyclingPowerAvg: Double?,
+    val cyclingWkg: Double?,
+    val cyclingSpeedKmh: Double?,
+    val load7: Double,
+    val load28: Double,
+    val load90: Double,
+    val vo2Change90: Double?,
+    val runCount90: Int,
+)
+
+data class HeartHealthComponent(
+    val name: String,
+    val score: Int?,
+    val value: String,
+    val provenance: Provenance,
+    val hint: String,
+    val le8: Boolean,
+)
+
+data class HeartHealthReport(
+    val score: Int?,
+    val label: String,
+    val tone: Tone,
+    val components: List<HeartHealthComponent>,
+    val covered: Int,
+)
+
+enum class ForecastScenario(val label: String, val loadFactor: Double) {
+    REST("Ruhetag", 0.0),
+    EASY("Lockeres Training", 0.5),
+    NORMAL("Normales Training", 1.0),
+    HARD("Hartes Training", 1.8),
+}
+
+data class ForecastPoint(val date: LocalDate, val expected: Int, val low: Int, val high: Int)
+
+data class ForecastReport(
+    val scenarios: Map<ForecastScenario, List<ForecastPoint>>,
+    val personalModel: Boolean,
+    val sigma: Double,
+    val typicalLoad: Double,
+)
+
+enum class BaselineStatus(val label: String) {
+    NORMAL("im Normalbereich"),
+    SLIGHT_HIGH("leicht erhöht"),
+    SLIGHT_LOW("leicht erniedrigt"),
+    HIGH("ungewöhnlich hoch"),
+    LOW("ungewöhnlich niedrig"),
+    NO_DATA("zu wenig Daten"),
+}
+
+data class BaselineItem(
+    val name: String,
+    val unit: String,
+    val decimals: Int,
+    val current: Double?,
+    val mean30: Double?,
+    val sd30: Double?,
+    val mean90: Double?,
+    val z: Double?,
+    val status: BaselineStatus,
+    val tone: Tone,
+    val provenance: Provenance,
+)
+
+data class CorrelationInsight(
+    val title: String,
+    val text: String,
+    val r: Double?,
+    val n: Int,
+    val pValue: Double?,
+    val strength: String,
+    val significant: Boolean,
+)
+
+data class Briefing(
+    val headline: String,
+    val changes: List<String>,
+    val explanations: List<String>,
+    val todo: List<String>,
+    val tone: Tone,
+)
+
+data class TrendItem(
+    val name: String,
+    val unit: String,
+    val decimals: Int,
+    val series: List<Pair<LocalDate, Double>>,
+    val last30: Double?,
+    val prev30: Double?,
+    val last90: Double?,
+    val prev90: Double?,
+    val first365: Double?,
+    val higherIsBetter: Boolean?,
+    val summary: String,
+    val tone: Tone,
 )
 
 data class HealthWarning(val title: String, val text: String, val tone: Tone)
@@ -274,6 +522,16 @@ data class AnalysisResult(
     val isDemo: Boolean,
     val generatedAt: Instant,
     val zone: ZoneId,
+    val regeneration: RegenerationReport,
+    val heart: HeartReport,
+    val stress: StressReport,
+    val performance: PerformanceReport,
+    val heartHealth: HeartHealthReport = HeartHealthReport(null, "", Tone.NEUTRAL, emptyList(), 0),
+    val forecast: ForecastReport? = null,
+    val baselines: List<BaselineItem> = emptyList(),
+    val correlations: List<CorrelationInsight> = emptyList(),
+    val briefing: Briefing = Briefing("", emptyList(), emptyList(), emptyList(), Tone.NEUTRAL),
+    val trends: List<TrendItem> = emptyList(),
 ) {
     val todayMetrics: DayMetrics? get() = days.lastOrNull()
 }

@@ -8,6 +8,15 @@ import java.time.ZoneId
 /** Biologisches Geschlecht – wird nur für wissenschaftliche Formeln (TRIMP, VO2max-Normen) genutzt. */
 enum class Sex { MALE, FEMALE }
 
+/** Nikotin-Status nach AHA Life's Essential 8 (Punkte für die Herzgesundheit). */
+enum class Nicotine(val label: String, val le8Points: Int) {
+    NEVER("Nie geraucht", 100),
+    QUIT_5Y("Aufgehört vor mehr als 5 Jahren", 75),
+    QUIT_1_5Y("Aufgehört vor 1–5 Jahren", 50),
+    QUIT_LT1Y("Aufgehört vor weniger als 1 Jahr", 25),
+    CURRENT("Rauche / dampfe aktuell", 0),
+}
+
 /** Persönliche Angaben, die der Nutzer in der App einträgt. */
 data class UserProfile(
     val birthYear: Int? = null,
@@ -18,6 +27,10 @@ data class UserProfile(
     val maxHrOverride: Int? = null,
     val sleepGoalHours: Double = 8.0,
     val stepGoal: Int = 8000,
+    val nicotine: Nicotine? = null,
+    /** Zuletzt selbst gemessener Blutdruck (falls keine Messwerte in Health Connect vorliegen). */
+    val bpSystolic: Int? = null,
+    val bpDiastolic: Int? = null,
 ) {
     fun age(today: LocalDate): Int? = birthYear?.let { (today.year - it).coerceIn(10, 100) }
 }
@@ -67,9 +80,16 @@ data class Workout(
     val title: String? = null,
     val distanceMeters: Double? = null,
     val activeKcal: Double? = null,
+    val steps: Long? = null,
+    val avgPowerW: Double? = null,
 ) {
     val durationMin: Double get() = Duration.between(start, end).seconds / 60.0
 }
+
+data class BloodPressure(val time: Instant, val systolic: Double, val diastolic: Double)
+
+/** Schritte pro Stunde (Beginn der Stunde). */
+data class HourlySteps(val start: Instant, val steps: Long)
 
 data class DailyActivity(
     val date: LocalDate,
@@ -93,6 +113,10 @@ data class HealthData(
     val weight: List<TimedValue> = emptyList(),
     val height: List<TimedValue> = emptyList(),
     val bodyFat: List<TimedValue> = emptyList(),
+    val bloodPressure: List<BloodPressure> = emptyList(),
+    val hourlySteps: List<HourlySteps> = emptyList(),
+    /** Gespeicherte Tageswerte früherer App-Starts (für Langzeit-Trends über 1 Jahr). */
+    val history: List<DailySnapshot> = emptyList(),
     val zone: ZoneId = ZoneId.systemDefault(),
     val fetchedAt: Instant = Instant.now(),
     val isDemo: Boolean = false,

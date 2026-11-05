@@ -102,6 +102,49 @@ object AiReport {
         appendLine("SpO2 7 Tage ${f.spo2Avg7?.let { Fmt.num(it, 1) } ?: "–"} %, Atemfrequenz ${f.respAvg7?.let { Fmt.num(it, 1) } ?: "–"} /min")
         val a = r.activity
         appendLine("Schritte: heute ${a.stepsToday ?: "–"}, Ø 7 Tage ${a.steps7Avg?.let { Fmt.int(it) } ?: "–"}; aktive kcal Ø ${a.activeKcal7Avg?.let { Fmt.int(it) } ?: "–"}")
+        appendLine("Inaktive Stunden Ø ${a.inactiveHours7Avg?.let { Fmt.num(it, 1) } ?: "–"}, Bewegungsindex ${a.movementIndex?.value ?: "–"}, Alltagsbelastung Ø ${a.everydayLoad7Avg?.let { Fmt.int(it) } ?: "–"} TRIMP/Tag")
+        appendLine()
+
+        val g = r.regeneration
+        appendLine("# Regeneration")
+        appendLine("Regenerationsindex ${g.regenerationIndex ?: "–"} %, Rest-Erholung ${Fmt.int(g.remainingHours)} h, Ermüdungsindex ${g.fatigueIndex ?: "–"} (${g.fatigueLabel}), Belastungs-/Erholungsverhältnis ${g.balance?.let { Fmt.num(it, 2) } ?: "–"} (${g.balanceLabel})")
+        appendLine("Belastung 7/28/90 Tage: ${Fmt.int(g.load7)}/${Fmt.int(g.load28)}/${Fmt.int(g.load90)} TRIMP; Überlastung: ${g.overloadLabel}" + if (g.overloadSignals.isNotEmpty()) " (${g.overloadSignals.joinToString("; ")})" else "")
+        appendLine()
+
+        val h = r.heart
+        appendLine("# Herz & Nervensystem")
+        appendLine("Ø Puls 24 h: ${h.avgHr7?.let { Fmt.int(it) } ?: "–"}; Schlafpuls ${h.sleepAvgHr?.let { Fmt.int(it) } ?: "–"}; nächtliche Absenkung ${h.dipPct?.let { Fmt.int(it) + " %" } ?: "–"}; Ruhepuls-Stabilität ±${h.rhrSd14?.let { Fmt.num(it, 1) } ?: "–"} bpm")
+        appendLine("HRV Ø 7/30/90/180 Tage: ${h.hrv7?.let { Fmt.int(it) } ?: "–"}/${h.hrv30?.let { Fmt.int(it) } ?: "–"}/${h.hrv90?.let { Fmt.int(it) } ?: "–"}/${h.hrv180?.let { Fmt.int(it) } ?: "–"} ms; Ruhepuls vor 1 Jahr ${h.rhr365?.let { Fmt.int(it) } ?: "–"}")
+        h.hrr.firstOrNull()?.let { appendLine("Herzfrequenzerholung: ${it.drop60} Schläge/60 s (${if (it.afterExercise) "nach Trainingsende" else "nach Belastungsspitze"}, ${it.title})") }
+        val st = r.stress
+        appendLine("Stress-Index (Schätzung aus Puls ohne Bewegung): heute ${st.today?.let { Fmt.int(it) } ?: "–"}, Ø 7 Tage ${st.avg7?.let { Fmt.int(it) } ?: "–"} (${st.label})")
+        appendLine()
+
+        val pf = r.performance
+        appendLine("# Leistungsentwicklung")
+        appendLine("Aerobe Effizienz-Änderung (4 Wochen): ${pf.efChangePct?.let { Fmt.signed(it, 1) + " %" } ?: "–"}; Tempo in Zone 2: ${pf.paceAtZ2SecKm?.let { Fmt.pace(it) } ?: "–"}; Laktatschwelle (Schätzung) ${pf.lthr ?: "–"} bpm; Zone-4–5-Minuten 28 Tage ${Fmt.int(pf.hardMin28)}")
+        appendLine()
+
+        val hh = r.heartHealth
+        appendLine("# Herzgesundheit (angelehnt an AHA Life's Essential 8)")
+        appendLine("Gesamt ${hh.score ?: "–"} (${hh.label}); " + hh.components.joinToString("; ") { "${it.name} ${it.score ?: "–"} (${it.value})" })
+        r.forecast?.let { fc ->
+            appendLine()
+            appendLine("# Prognose Trainingsbereitschaft (Erwartung, 80-%-Bereich)")
+            fc.scenarios.forEach { (sc, pts) -> appendLine("${sc.label}: " + pts.joinToString(", ") { "${Fmt.dayShort(it.date)} ${it.expected} (${it.low}–${it.high})" }) }
+        }
+        val unusual = r.baselines.filter { it.status != de.vitalcoach.core.BaselineStatus.NORMAL && it.status != de.vitalcoach.core.BaselineStatus.NO_DATA }
+        if (unusual.isNotEmpty()) {
+            appendLine()
+            appendLine("# Abweichungen von den persönlichen Normalwerten")
+            unusual.forEach { appendLine("${it.name}: ${it.current?.let { v -> Fmt.num(v, it.decimals) } ?: "–"} vs. Ø ${it.mean30?.let { v -> Fmt.num(v, it.decimals) } ?: "–"} (${it.status.label})") }
+        }
+        val sig = r.correlations.filter { it.significant }
+        if (sig.isNotEmpty()) {
+            appendLine()
+            appendLine("# Erkannte persönliche Zusammenhänge")
+            sig.forEach { appendLine("${it.title}: ${it.text}") }
+        }
     }
 
     private fun ja(b: Boolean) = if (b) "ja" else "nein"

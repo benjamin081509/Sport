@@ -184,6 +184,7 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
                 item { CoachCard(Coach.fitness(r)) }
             }
             MetricKey.ACTIVITY -> {
+                activityItems(r)
                 val d14 = r.days.takeLast(14)
                 item {
                     SectionCard(title = "Aktive Kalorien (14 Tage)") {
@@ -194,7 +195,6 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
                         )
                     }
                 }
-                item { CoachCard(Coach.activity(r)) }
             }
             MetricKey.VITALS -> {
                 item {
@@ -217,10 +217,24 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
             MetricKey.BODY -> {
                 item { CoachCard(Coach.body(r)) }
             }
+            MetricKey.REGENERATION -> recoveryItems(r, vm)
+            MetricKey.HEART_HEALTH -> heartHealthItems(r)
+            MetricKey.HEART -> heartItems(r)
+            MetricKey.STRESS -> stressItems(r)
+            MetricKey.PERFORMANCE -> performanceItems(r)
+            MetricKey.FORECAST -> item { ForecastDetail(r) }
+            MetricKey.BASELINES -> baselineItems(r)
+            MetricKey.CORRELATIONS -> correlationItems(r)
+            MetricKey.TRENDS -> trendItems(r)
         }
         item {
             SectionCard(title = "Was ist das?", icon = Icons.Filled.Info) {
                 Text(Explain.what(key), style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Herkunft des Werts: ", style = MaterialTheme.typography.bodySmall)
+                    ProvenanceChip(Explain.provenance(key))
+                }
             }
         }
         item {

@@ -12,17 +12,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -42,14 +46,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import de.vitalcoach.app.AiState
+import de.vitalcoach.app.HealthConnectRepository
 import de.vitalcoach.app.MainViewModel
 import de.vitalcoach.app.Route
 import de.vitalcoach.app.Tab
 import de.vitalcoach.app.UiState
 import de.vitalcoach.core.AnalysisResult
-import de.vitalcoach.core.Coach
 import de.vitalcoach.core.Fmt
 import de.vitalcoach.core.MetricKey
+import de.vitalcoach.core.Provenance
 import de.vitalcoach.core.Tone
 import java.time.LocalTime
 import java.time.ZoneId
@@ -64,7 +69,7 @@ fun TodayScreen(state: UiState, vm: MainViewModel, padding: PaddingValues, onTab
     ) {
         item { Header(state, vm) }
         if (r == null) {
-            item { NoDataCard(state, onTab) }
+            item { NoDataCard(state, vm) }
             return@LazyColumn
         }
         items(r.warnings.size) { i ->
@@ -85,9 +90,10 @@ fun TodayScreen(state: UiState, vm: MainViewModel, padding: PaddingValues, onTab
             }
         }
         item { RingsCard(r, vm) }
-        item { CoachCard(Coach.day(r), title = "Dein Tagesfazit") }
-        item { AiCard(state, vm, onTab) }
-        item { Tiles(r, vm) }
+        item { BriefingCard(r) }
+        item { ForecastCard(r, vm) }
+        item { AiCard(state, vm) }
+        item { Tiles(r, vm, onTab) }
         item {
             Text(
                 dataNote(r),
@@ -126,6 +132,11 @@ private fun Header(state: UiState, vm: MainViewModel) {
         } else {
             IconButton(onClick = { vm.refresh() }) { Icon(Icons.Filled.Refresh, contentDescription = "Aktualisieren") }
         }
+        IconButton(onClick = { vm.open(Route.Settings) }) { Icon(Icons.Filled.Settings, contentDescription = "Einstellungen") }
+    }
+    val progress = state.progress
+    if (state.loading && progress != null) {
+        Text("Lade: $progress …", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     state.error?.let {
         Spacer(Modifier.height(6.dp))
@@ -181,8 +192,38 @@ fun readinessLabel(v: Int) = when {
     else -> "Ruhetag"
 }
 
+/** Tägliche automatische Zusammenfassung (Daily Health Intelligence). */
 @Composable
-private fun AiCard(state: UiState, vm: MainViewModel, onTab: (Tab) -> Unit) {
+private fun BriefingCard(r: AnalysisResult) {
+    val b = r.briefing
+    SectionCard(title = "Dein Tages-Briefing", icon = Icons.Filled.AutoAwesome) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ToneDot(b.tone)
+            Spacer(Modifier.width(8.dp))
+            Text(b.headline, style = MaterialTheme.typography.titleMedium)
+        }
+        Spacer(Modifier.height(10.dp))
+        Text("Wichtigste Veränderungen", style = MaterialTheme.typography.titleSmall)
+        if (b.changes.isEmpty()) {
+            Text("Keine auffälligen Abweichungen von deinen Normalwerten.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            b.changes.forEach { Bullet(it) }
+        }
+        if (b.explanations.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text("Mögliche Erklärungen", style = MaterialTheme.typography.titleSmall)
+            b.explanations.forEach { Bullet(it) }
+        }
+        if (b.todo.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text("Für heute", style = MaterialTheme.typography.titleSmall)
+            b.todo.forEach { Bullet(it) }
+        }
+    }
+}
+
+@Composable
+private fun AiCard(state: UiState, vm: MainViewModel) {
     var question by rememberSaveable { mutableStateOf("") }
     SectionCard(title = "KI-Coach (Claude)", icon = Icons.Filled.AutoAwesome) {
         if (state.apiKey.isBlank()) {
@@ -192,7 +233,7 @@ private fun AiCard(state: UiState, vm: MainViewModel, onTab: (Tab) -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(10.dp))
-            OutlinedButton(onClick = { onTab(Tab.MORE) }) { Text("KI-Coach einrichten") }
+            OutlinedButton(onClick = { vm.open(Route.Settings) }) { Text("KI-Coach einrichten") }
             return@SectionCard
         }
         OutlinedTextField(
@@ -239,11 +280,13 @@ private fun AiCard(state: UiState, vm: MainViewModel, onTab: (Tab) -> Unit) {
 }
 
 @Composable
-private fun Tiles(r: AnalysisResult, vm: MainViewModel) {
+private fun Tiles(r: AnalysisResult, vm: MainViewModel, onTab: (Tab) -> Unit) {
     val t = r.todayMetrics
     val f = r.fitness
     val l = r.load
+    val g = r.regeneration
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Deine Werte", style = MaterialTheme.typography.titleLarge)
         TileRow {
             val rhr = t?.restingHr
             val b = t?.rhrBaseline
@@ -257,7 +300,7 @@ private fun Tiles(r: AnalysisResult, vm: MainViewModel) {
                     diff <= 1 -> Tone.GOOD
                     else -> Tone.OK
                 },
-                Icons.Filled.Favorite, Modifier.weight(1f),
+                Icons.Filled.Favorite, Modifier.weight(1f), Provenance.CALCULATED,
             ) { vm.open(Route.Metric(MetricKey.RESTING_HR)) }
             val hrv = t?.hrv
             val low = f.hrvNormalLow
@@ -276,8 +319,23 @@ private fun Tiles(r: AnalysisResult, vm: MainViewModel) {
                     hrv < low -> Tone.WARN
                     else -> Tone.GOOD
                 },
-                Icons.Filled.MonitorHeart, Modifier.weight(1f),
+                Icons.Filled.MonitorHeart, Modifier.weight(1f), Provenance.MEASURED,
             ) { vm.open(Route.Metric(MetricKey.HRV)) }
+        }
+        TileRow {
+            val idx = g.regenerationIndex
+            MetricTile(
+                "Regeneration", idx?.let { "$it" } ?: "–", "%",
+                if (g.remainingHours >= 1) "noch ${Fmt.int(g.remainingHours)} h" else "erholt",
+                scoreTone(idx), Icons.Filled.BatteryChargingFull, Modifier.weight(1f), Provenance.ESTIMATED,
+            ) { onTab(Tab.RECOVERY) }
+            val s = r.stress
+            val sv = s.today ?: s.avg7
+            MetricTile(
+                "Stress-Index", sv?.let { Fmt.int(it) } ?: "–", "",
+                if (s.today == null && s.avg7 != null) "Ø 7 Tage · ${s.label}" else s.label,
+                s.tone, Icons.Filled.Psychology, Modifier.weight(1f), Provenance.ESTIMATED,
+            ) { vm.open(Route.Metric(MetricKey.STRESS)) }
         }
         TileRow {
             val steps = r.activity.stepsToday
@@ -285,18 +343,18 @@ private fun Tiles(r: AnalysisResult, vm: MainViewModel) {
                 "Schritte", steps?.let { Fmt.int(it) } ?: "–", "",
                 r.activity.steps7Avg?.let { "Ø 7 Tage ${Fmt.int(it)}" },
                 if ((steps ?: 0) >= r.activity.stepGoal) Tone.GOOD else Tone.NEUTRAL,
-                Icons.AutoMirrored.Filled.DirectionsWalk, Modifier.weight(1f),
+                Icons.AutoMirrored.Filled.DirectionsWalk, Modifier.weight(1f), Provenance.MEASURED,
             ) { vm.open(Route.Metric(MetricKey.ACTIVITY)) }
             MetricTile(
                 "Aktive kcal", r.activity.activeKcalToday?.let { Fmt.int(it) } ?: "–", "kcal",
                 r.activity.activeKcal7Avg?.let { "Ø 7 Tage ${Fmt.int(it)}" },
-                Tone.NEUTRAL, Icons.Filled.LocalFireDepartment, Modifier.weight(1f),
+                Tone.NEUTRAL, Icons.Filled.LocalFireDepartment, Modifier.weight(1f), Provenance.MEASURED,
             ) { vm.open(Route.Metric(MetricKey.ACTIVITY)) }
         }
         TileRow {
             MetricTile(
                 "Belastung 7 Tage", Fmt.int(l.weekLoad), "TRIMP",
-                l.status.label, l.status.tone, Icons.Filled.Bolt, Modifier.weight(1f),
+                l.status.label, l.status.tone, Icons.Filled.Bolt, Modifier.weight(1f), Provenance.CALCULATED,
             ) { vm.open(Route.Metric(MetricKey.LOAD)) }
             MetricTile(
                 "Form", Fmt.signed(l.tsb), "",
@@ -306,7 +364,7 @@ private fun Tiles(r: AnalysisResult, vm: MainViewModel) {
                     l.tsb < -10 -> Tone.OK
                     else -> Tone.GOOD
                 },
-                Icons.Filled.Timeline, Modifier.weight(1f),
+                Icons.Filled.Timeline, Modifier.weight(1f), Provenance.CALCULATED,
             ) { vm.open(Route.Metric(MetricKey.LOAD)) }
         }
         TileRow {
@@ -319,8 +377,15 @@ private fun Tiles(r: AnalysisResult, vm: MainViewModel) {
                     2 -> Tone.OK
                     else -> Tone.GOOD
                 },
-                Icons.Filled.Speed, Modifier.weight(1f),
+                Icons.Filled.Speed, Modifier.weight(1f), Provenance.ESTIMATED,
             ) { vm.open(Route.Metric(MetricKey.VO2MAX)) }
+            val hh = r.heartHealth
+            MetricTile(
+                "Herzgesundheit", hh.score?.toString() ?: "–", "",
+                hh.label.ifEmpty { null }, hh.tone, Icons.Filled.Favorite, Modifier.weight(1f), Provenance.CALCULATED,
+            ) { vm.open(Route.Metric(MetricKey.HEART_HEALTH)) }
+        }
+        TileRow {
             val spo2 = t?.spo2
             MetricTile(
                 "SpO2 / Atmung",
@@ -331,25 +396,32 @@ private fun Tiles(r: AnalysisResult, vm: MainViewModel) {
                     spo2 < 93 -> Tone.WARN
                     else -> Tone.GOOD
                 },
-                Icons.Filled.Air, Modifier.weight(1f),
+                Icons.Filled.Air, Modifier.weight(1f), Provenance.MEASURED,
             ) { vm.open(Route.Metric(MetricKey.VITALS)) }
+            val need = r.sleep.needTonightMin
+            val bed = r.sleep.recommendedBedtimeMin
+            MetricTile(
+                "Schlafbedarf heute", need?.let { Fmt.duration(it) } ?: "–", "",
+                bed?.let { "ins Bett ca. ${Fmt.clock(it)} Uhr" },
+                Tone.NEUTRAL, Icons.Filled.Bedtime, Modifier.weight(1f), Provenance.ESTIMATED,
+            ) { onTab(Tab.SLEEP) }
         }
     }
 }
 
 @Composable
-private fun NoDataCard(state: UiState, onTab: (Tab) -> Unit) {
+private fun NoDataCard(state: UiState, vm: MainViewModel) {
     SectionCard(title = "Noch keine Daten") {
         val text = when {
             state.loading -> "Daten werden aus Health Connect geladen …"
-            state.availability != de.vitalcoach.app.HealthConnectRepository.Availability.AVAILABLE ->
+            state.availability != HealthConnectRepository.Availability.AVAILABLE ->
                 "Health Connect ist auf diesem Gerät nicht verfügbar oder muss aktualisiert werden."
-            !state.hasPermissions -> "VitalCoach hat noch keinen Zugriff auf deine Gesundheitsdaten. Erlaube den Zugriff unter „Mehr → Datenquelle“."
+            !state.hasPermissions -> "VitalCoach hat noch keinen Zugriff auf deine Gesundheitsdaten. Erlaube den Zugriff in den Einstellungen unter „Datenquelle“."
             else -> "Es wurden noch keine Daten gefunden. Prüfe, ob Samsung Health Daten an Health Connect weitergibt."
         }
         Text(text, style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(10.dp))
-        OutlinedButton(onClick = { onTab(Tab.MORE) }) { Text("Zu den Einstellungen") }
+        OutlinedButton(onClick = { vm.open(Route.Settings) }) { Text("Zu den Einstellungen") }
     }
 }
 

@@ -15,10 +15,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.FitnessCenter
-import androidx.compose.material.icons.filled.MonitorHeart
-import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -77,6 +77,7 @@ fun VitalApp(vm: MainViewModel, actions: AppActions, showPrivacy: Boolean, onPri
                 is Route.WorkoutDetail -> WorkoutDetailScreen(route.startEpochSec, state.result, vm)
                 Route.Methods -> MethodsScreen(vm)
                 Route.Privacy -> PrivacyScreen(onBack = { vm.back() })
+                Route.Settings -> SettingsScreen(state, vm, actions)
                 null -> MainTabs(state, vm, tab, { tab = it }, actions)
             }
         }
@@ -102,26 +103,20 @@ private fun MainTabs(state: UiState, vm: MainViewModel, tab: Tab, onTab: (Tab) -
     ) { padding ->
         when (tab) {
             Tab.TODAY -> TodayScreen(state, vm, padding, onTab)
+            Tab.RECOVERY -> RecoveryScreen(state, vm, padding)
             Tab.TRAINING -> TrainingScreen(state, vm, padding)
             Tab.SLEEP -> SleepScreen(state, padding)
-            Tab.BODY -> BodyScreen(state, vm, padding)
-            Tab.MORE -> MoreScreen(
-                state, vm, padding,
-                onRequestPermissions = actions.requestPermissions,
-                onOpenHealthConnect = actions.openHealthConnect,
-                onOpenSamsungHealth = actions.openSamsungHealth,
-                onInstallHealthConnect = actions.installHealthConnect,
-            )
+            Tab.ANALYSES -> AnalysesScreen(state, vm, padding)
         }
     }
 }
 
 private fun Tab.icon(): ImageVector = when (this) {
     Tab.TODAY -> Icons.Filled.Today
+    Tab.RECOVERY -> Icons.Filled.BatteryChargingFull
     Tab.TRAINING -> Icons.Filled.FitnessCenter
     Tab.SLEEP -> Icons.Filled.Bedtime
-    Tab.BODY -> Icons.Filled.MonitorHeart
-    Tab.MORE -> Icons.Filled.MoreHoriz
+    Tab.ANALYSES -> Icons.Filled.Insights
 }
 
 /** Ersteinrichtung in drei einfachen Schritten. */

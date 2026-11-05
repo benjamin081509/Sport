@@ -8,6 +8,7 @@ import de.vitalcoach.core.AnalysisResult
 import de.vitalcoach.core.Analyzer
 import de.vitalcoach.core.DemoData
 import de.vitalcoach.core.MetricKey
+import de.vitalcoach.core.SnapshotCodec
 import de.vitalcoach.core.UserProfile
 import de.vitalcoach.core.ai.AiAnswer
 import de.vitalcoach.core.ai.AiReport
@@ -23,13 +24,14 @@ import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 
-enum class Tab(val label: String) { TODAY("Heute"), TRAINING("Training"), SLEEP("Schlaf"), BODY("Körper"), MORE("Mehr") }
+enum class Tab(val label: String) { TODAY("Heute"), RECOVERY("Erholung"), TRAINING("Training"), SLEEP("Schlaf"), ANALYSES("Analysen") }
 
 sealed interface Route {
     data class Metric(val key: MetricKey) : Route
     data class WorkoutDetail(val startEpochSec: Long) : Route
     data object Methods : Route
     data object Privacy : Route
+    data object Settings : Route
 }
 
 sealed interface AiState {
@@ -45,6 +47,7 @@ data class UiState(
     val grantedCount: Int = 0,
     val totalPermissions: Int = 0,
     val loading: Boolean = false,
+    val progress: String? = null,
     val error: String? = null,
     val result: AnalysisResult? = null,
     val profile: UserProfile = UserProfile(),
@@ -59,6 +62,7 @@ data class UiState(
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     val repo = HealthConnectRepository(app)
     private val store = SettingsStore(app)
+    private val history = HistoryStore(app)
 
     private val _state = MutableStateFlow(
         UiState(
@@ -102,7 +106,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refresh() {
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
+            _state.update { it.copy(loading = true, error = null, progress = null) }
             try {
                 val availability = repo.availability()
                 val granted = if (availability == HealthConnectRepository.Availability.AVAILABLE) repo.grantedPermissions() else emptySet()
@@ -115,8 +119,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                             Analyzer.analyze(DemoData.generate(ZoneId.systemDefault(), Instant.now()), profile)
                         }
                         availability == HealthConnectRepository.Availability.AVAILABLE && granted.isNotEmpty() -> {
-                            val data = withContext(Dispatchers.IO) { repo.readAll() }
-                            Analyzer.analyze(data, s.profile)
+                            val saved = withContext(Dispatchers.IO) { history.load() }
+                            val data = withContext(Dispatchers.IO) {
+                                repo.readAll(onProgress = { p -> _state.update { st -> st.copy(progress = p) } })
+                            }.copy(history = saved)
+                            _state.update { st -> st.copy(progress = "Berechne Auswertungen") }
+                            val r = Analyzer.analyze(data, s.profile)
+                            withContext(Dispatchers.IO) { history.save(SnapshotCodec.merge(saved, SnapshotCodec.fromResult(r))) }
+                            r
                         }
                         else -> null
                     }
@@ -129,11 +139,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         totalPermissions = repo.readPermissions.size,
                         result = result,
                         loading = false,
+                        progress = null,
                         lastRefresh = Instant.now(),
                     )
                 }
             } catch (t: Throwable) {
-                _state.update { it.copy(loading = false, error = "Daten konnten nicht geladen werden: ${t.message ?: t.javaClass.simpleName}") }
+                _state.update { it.copy(loading = false, progress = null, error = "Daten konnten nicht geladen werden: ${t.message ?: t.javaClass.simpleName}") }
             }
         }
     }

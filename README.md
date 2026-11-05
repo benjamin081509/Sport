@@ -4,11 +4,14 @@ VitalCoach ist eine Android-App für dein **Samsung Galaxy S23**. Sie liest die 
 
 | Bereich | Was du bekommst |
 |---|---|
-| **Heute** | Erholung (0–100), Trainingsbereitschaft (0–100), Schlaf-Score, Tagesfazit, Frühwarnungen (z. B. beginnender Infekt) |
-| **Training** | Trainingsempfehlung für heute inkl. Zielbelastung, Fitness / Ermüdung / Form (Banister-Modell), Belastungssteigerung (ACWR), Intensitätsverteilung (80/20), WHO-Aktivminuten, Monotonie, Analyse jedes Trainings |
-| **Schlaf** | Schlaf-Score mit Bausteinen, Schlafphasen mit Normwerten, Schlafschuld, Regelmäßigkeit, empfohlene Bettzeit |
-| **Körper** | VO2max mit Kategorie und **Fitnessalter**, Ruhepuls-Trend, HRV mit persönlichem Normalbereich, Herzfrequenzzonen, SpO2, Atemfrequenz, BMI, Körperfett |
+| **Heute** | Erholung, Trainingsbereitschaft, Schlaf-Score, **Tages-Briefing** (wichtigste Veränderungen + mögliche Erklärungen), **Prognose** der Bereitschaft für 1–3 Tage, Frühwarnungen, Kacheln mit Herkunftsangabe |
+| **Erholung** | Persönlicher Erholungswert (HRV, Ruhepuls, Schlaf, Atmung, Trainingsbelastung), Regenerationsindex & Erholungsdauer, Ermüdungsindex, Belastungs-/Erholungsverhältnis, Überlastungsindikator, HRV-Trend, Ruhepuls-Abweichung |
+| **Training** | Empfehlung für heute, Fitness/Ermüdung/Form, ACWR, Belastung 7/28/90 Tage, Intensitätsverteilung, Monotonie, Analyse jedes Trainings |
+| **Schlaf** | Schlafbedarf heute Nacht inkl. Bettzeit, persönlicher Schlafbedarf, Schlaf-Konsistenz-Score (SRI), Schlafschuld 7/14 Tage, Effizienz, Phasen, nächtliche Erholung (Pulsabsenkung, Tiefpunkt, HRV, Pulskurve) |
+| **Analysen** | Herzgesundheit (AHA Life's Essential 8), Herz & Kreislauf (Ø Puls, HRV-/Ruhepuls-Trends bis 1 Jahr, Pulserholung HRR, Stabilität, Zonen), Stress-Index, Fitness & Leistung (VO2max, Fitnessalter, aerobe Effizienz, Laktatschwelle, Pace), Bewegung & Alltag (inaktive Zeit, Tagesverteilung, Wochenbilanz, Alltagsbelastung), Langzeit-Trends, persönliche Normalwerte, Zusammenhänge in deinen Daten |
 | **KI-Coach** | Eingebauter Coach (offline, kostenlos) **plus** optional eine ausführliche Analyse durch die KI *Claude*, der du auch eigene Fragen stellen kannst |
+
+Jeder Wert ist gekennzeichnet als **Gemessen** (Originaldaten der Uhr), **Berechnet** (aus mehreren Messwerten) oder **Geschätzt** (Schätzung/Prognose).
 
 Alle Formeln stammen aus der Sportwissenschaft. In der App unter **Mehr → So rechnet VitalCoach** findest du alle Formeln und Quellen.
 

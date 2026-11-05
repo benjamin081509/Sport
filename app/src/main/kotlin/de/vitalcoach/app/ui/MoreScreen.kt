@@ -52,6 +52,7 @@ import de.vitalcoach.app.HealthConnectRepository
 import de.vitalcoach.app.MainViewModel
 import de.vitalcoach.app.Route
 import de.vitalcoach.app.UiState
+import de.vitalcoach.core.Nicotine
 import de.vitalcoach.core.Sex
 import de.vitalcoach.core.UserProfile
 import de.vitalcoach.core.ai.ClaudeModel
@@ -72,6 +73,36 @@ fun MoreScreen(
     ) {
         item { Text("Mehr", style = MaterialTheme.typography.headlineMedium) }
         item { DataSourceCard(state, vm, onRequestPermissions, onOpenHealthConnect, onOpenSamsungHealth, onInstallHealthConnect) }
+        item { ProfileCard(state.profile) { vm.saveProfile(it) } }
+        item { AiSettingsCard(state, vm) }
+        item {
+            SectionCard(title = "So rechnet VitalCoach", icon = Icons.Filled.Science, onClick = { vm.open(Route.Methods) }) {
+                Text("Alle Formeln, Referenzwerte und wissenschaftlichen Quellen auf einen Blick.", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        item {
+            SectionCard(title = "Datenschutz", icon = Icons.Filled.Lock, onClick = { vm.open(Route.Privacy) }) {
+                Text("Deine Daten bleiben auf deinem Handy.", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        item {
+            Text(
+                "VitalCoach ${de.vitalcoach.app.BuildConfig.VERSION_NAME} · Kein Medizinprodukt – die Werte ersetzen keine ärztliche Beratung.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(4.dp),
+            )
+        }
+    }
+}
+
+/** Einstellungen als eigene Seite (erreichbar über das Zahnrad und „Analysen“). */
+@Composable
+fun SettingsScreen(state: UiState, vm: MainViewModel, actions: AppActions) {
+    DetailScaffold("Einstellungen", onBack = { vm.back() }) {
+        item {
+            DataSourceCard(state, vm, actions.requestPermissions, actions.openHealthConnect, actions.openSamsungHealth, actions.installHealthConnect)
+        }
         item { ProfileCard(state.profile) { vm.saveProfile(it) } }
         item { AiSettingsCard(state, vm) }
         item {
@@ -175,6 +206,9 @@ fun ProfileCard(profile: UserProfile, onSave: (UserProfile) -> Unit) {
     var maxHr by rememberSaveable(profile) { mutableStateOf(profile.maxHrOverride?.toString() ?: "") }
     var sleepGoal by rememberSaveable(profile) { mutableStateOf(trimNum(profile.sleepGoalHours)) }
     var stepGoal by rememberSaveable(profile) { mutableStateOf(profile.stepGoal.toString()) }
+    var nicotine by rememberSaveable(profile) { mutableStateOf(profile.nicotine?.name) }
+    var bpSys by rememberSaveable(profile) { mutableStateOf(profile.bpSystolic?.toString() ?: "") }
+    var bpDia by rememberSaveable(profile) { mutableStateOf(profile.bpDiastolic?.toString() ?: "") }
     var saved by remember { mutableStateOf(false) }
 
     SectionCard(title = "Profil", icon = Icons.Filled.Person) {
@@ -204,6 +238,25 @@ fun ProfileCard(profile: UserProfile, onSave: (UserProfile) -> Unit) {
         Spacer(Modifier.height(8.dp))
         NumberField("Max. Puls (optional, aus Leistungstest)", maxHr) { maxHr = it }
         Spacer(Modifier.height(12.dp))
+        Text("Für die Herzgesundheit (optional)", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        Text("Rauchen / Nikotin", style = MaterialTheme.typography.labelLarge)
+        Nicotine.entries.forEach { n ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable { nicotine = n.name },
+            ) {
+                RadioButton(selected = nicotine == n.name, onClick = { nicotine = n.name })
+                Text(n.label, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text("Letzter Blutdruck (falls die Uhr keinen liefert)", style = MaterialTheme.typography.labelLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NumberField("Systolisch", bpSys, Modifier.weight(1f)) { bpSys = it }
+            NumberField("Diastolisch", bpDia, Modifier.weight(1f)) { bpDia = it }
+        }
+        Spacer(Modifier.height(12.dp))
         Button(
             onClick = {
                 onSave(
@@ -215,6 +268,9 @@ fun ProfileCard(profile: UserProfile, onSave: (UserProfile) -> Unit) {
                         maxHrOverride = maxHr.toIntOrNull()?.takeIf { it in 120..230 },
                         sleepGoalHours = sleepGoal.toDec()?.takeIf { it in 5.0..11.0 } ?: 8.0,
                         stepGoal = stepGoal.toIntOrNull()?.takeIf { it in 1000..50000 } ?: 8000,
+                        nicotine = nicotine?.let { Nicotine.valueOf(it) },
+                        bpSystolic = bpSys.toIntOrNull()?.takeIf { it in 70..250 },
+                        bpDiastolic = bpDia.toIntOrNull()?.takeIf { it in 40..150 },
                     ),
                 )
                 saved = true

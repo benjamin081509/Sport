@@ -1,9 +1,12 @@
 package de.vitalcoach.core
 
+import java.time.DayOfWeek
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.max
@@ -13,8 +16,9 @@ import kotlin.math.roundToInt
  * Herzstück der App: berechnet aus den Rohdaten alle Tageswerte, persönlichen Referenzwerte,
  * Scores und Berichte.
  *
- * Erholung (0–100): Abweichung von HRV, Ruhepuls und Atemfrequenz zu deinem persönlichen
- *   30-Tage-Schnitt (z-Werte, HRV logarithmiert – Plews et al. 2012, Buchheit 2014) plus Schlaf-Score.
+ * Persönlicher Erholungswert (0–100): Abweichung von HRV, Ruhepuls und Atemfrequenz zu deinem persönlichen
+ *   30-Tage-Schnitt (z-Werte, HRV logarithmiert – Plews et al. 2012, Buchheit 2014), Schlaf-Score und
+ *   Rest-Belastung aus dem Regenerationsmodell.
  * Trainingsbereitschaft (0–100): Erholung + Belastungssteigerung (ACWR, Gabbett 2016; EWMA nach
  *   Williams et al. 2017) + Form (TSB, Banister-Modell) + Schlafschuld.
  * Belastung: Banister-TRIMP, Fitness (CTL, 42 Tage) und Ermüdung (ATL, 7 Tage) als exponentiell
@@ -22,11 +26,11 @@ import kotlin.math.roundToInt
  */
 object Analyzer {
 
-    private const val MAX_DAYS = 120L
-    private val K_ATL = 1.0 - exp(-1.0 / 7.0)
-    private val K_CTL = 1.0 - exp(-1.0 / 42.0)
-    private const val L_ACUTE = 2.0 / (7.0 + 1.0)
-    private const val L_CHRONIC = 2.0 / (28.0 + 1.0)
+    private const val MAX_DAYS = 370L
+    internal val K_ATL = 1.0 - exp(-1.0 / 7.0)
+    internal val K_CTL = 1.0 - exp(-1.0 / 42.0)
+    internal const val L_ACUTE = 2.0 / (7.0 + 1.0)
+    internal const val L_CHRONIC = 2.0 / (28.0 + 1.0)
 
     fun analyze(
         data: HealthData,
@@ -34,11 +38,16 @@ object Analyzer {
         today: LocalDate = LocalDate.now(data.zone),
     ): AnalysisResult {
         val zone = data.zone
+        val now = data.fetchedAt
         val hr = data.heartRate.sortedBy { it.time }
         val hrv = data.hrv.sortedBy { it.time }
         val resp = data.respiratoryRate.sortedBy { it.time }
         val spo2 = data.spo2.sortedBy { it.time }
         val rhrRecords = data.restingHr.sortedBy { it.time }
+        val snapByDate = data.history.associateBy { it.date }
+        val hourlyMap = HashMap<Long, Long>()
+        data.hourlySteps.forEach { hourlyMap[it.start.epochSecond / 3600] = it.steps }
+        val hourlyDates = data.hourlySteps.map { it.start.atZone(zone).toLocalDate() }.toSet()
         val age = profile.age(today)
         val sex = profile.sex
 
@@ -48,6 +57,7 @@ object Analyzer {
             data.sleep.minOfOrNull { it.end }?.atZone(zone)?.toLocalDate(),
             data.workouts.minOfOrNull { it.start }?.atZone(zone)?.toLocalDate(),
             data.daily.filter { (it.steps ?: 0) > 0 }.minOfOrNull { it.date },
+            data.history.minOfOrNull { it.date },
         ).minOrNull() ?: today
         val start = maxOf(earliestData, today.minusDays(MAX_DAYS - 1)).let { if (it.isAfter(today)) today else it }
         val dates = generateSequence(start) { it.plusDays(1) }.takeWhile { !it.isAfter(today) }.toList()
@@ -79,6 +89,7 @@ object Analyzer {
                 fromSleep != null -> fromSleep to RhrSource.SLEEP
                 device.isNotEmpty() -> device.average() to RhrSource.DEVICE
                 else -> HeartMath.restingFromSamples(hr.sliceByTime(ds, de) { it.time })?.let { it to RhrSource.DAY }
+                    ?: snapByDate[d]?.restingHr?.let { it to RhrSource.HISTORY }
             }
             if (rhr != null) rhrByDate[d] = rhr
 
@@ -87,7 +98,7 @@ object Analyzer {
                     .ifEmpty { hrv.sliceByTime(ds, ds.plusSeconds(12 * 3600)) { it.time } }
                     .ifEmpty { hrv.sliceByTime(ds, de) { it.time } }
                 ).map { it.rmssdMs }.filter { it in 3.0..300.0 }
-            if (hrvVals.isNotEmpty()) hrvByDate[d] = hrvVals.average()
+            if (hrvVals.isNotEmpty()) hrvByDate[d] = hrvVals.average() else snapByDate[d]?.hrv?.let { hrvByDate[d] = it }
 
             val respVals = windowValues(resp, night, ds, de).filter { it in 5.0..40.0 }
             if (respVals.isNotEmpty()) respByDate[d] = respVals.average()
@@ -114,14 +125,39 @@ object Analyzer {
         val restRef = Stats.median(recentRhr) ?: 60.0
 
         // ---------- Trainings ----------
+        val hrrByWorkout = HashMap<Instant, Triple<Int, Int, Boolean>>()
+        val best20ByWorkout = HashMap<Instant, Double>()
         val workouts = workoutsSorted.map { w ->
-            HeartMath.analyzeWorkout(w, hr.sliceByTime(w.start, w.end) { it.time }, restRef, hrMax, sex)
+            val samples = hr.sliceByTime(w.start, w.end) { it.time }
+            if (samples.size >= 20) {
+                HeartExtras.heartRateRecovery(hr.sliceByTime(w.start, w.end.plusSeconds(180)) { it.time }, w.end, restRef, hrMax)
+                    ?.let { hrrByWorkout[w.start] = it }
+                if (w.type.endurance || w.type == SportType.HIIT) HeartExtras.best20MinAvg(samples)?.let { best20ByWorkout[w.start] = it }
+            }
+            HeartMath.analyzeWorkout(w, samples, restRef, hrMax, sex)
         }
         val workoutsByDate = workouts.groupBy { it.workout.start.atZone(zone).toLocalDate() }
         val dailyByDate = data.daily.associateBy { it.date }
 
         // ---------- Belastungsmodell ----------
-        val loads = dates.map { d -> workoutsByDate[d].orEmpty().sumOf { it.trimp } }
+        val loadFromHr = BooleanArray(n)
+        val loads = dates.mapIndexed { i, d ->
+            val ws = workoutsByDate[d].orEmpty()
+            val computed = ws.sumOf { it.trimp }
+            val snapLoad = snapByDate[d]?.load
+            val fromHr = ws.isNotEmpty() && ws.none { it.estimated }
+            when {
+                fromHr -> {
+                    loadFromHr[i] = true
+                    computed
+                }
+                snapLoad != null && snapLoad > 0 -> {
+                    loadFromHr[i] = true
+                    snapLoad
+                }
+                else -> computed
+            }
+        }
         val init = if (n > 0) loads.take(minOf(14, n)).average() else 0.0
         var atl = init
         var ctl = init
@@ -130,6 +166,8 @@ object Analyzer {
         val atlArr = DoubleArray(n)
         val ctlArr = DoubleArray(n)
         val tsbArr = DoubleArray(n)
+        val acuteArr = DoubleArray(n)
+        val chronicArr = DoubleArray(n)
         val acwrArr = arrayOfNulls<Double>(n)
         for (i in 0 until n) {
             tsbArr[i] = ctl - atl
@@ -139,13 +177,30 @@ object Analyzer {
             chronic = L_CHRONIC * loads[i] + (1 - L_CHRONIC) * chronic
             atlArr[i] = atl
             ctlArr[i] = ctl
+            acuteArr[i] = acute
+            chronicArr[i] = chronic
             acwrArr[i] = if (i >= 20 && chronic > 1.0) acute / chronic else null
         }
+        val dateIndex = dates.withIndex().associate { it.value to it.index }
 
-        // ---------- Tagesmetriken mit Referenzwerten ----------
+        // ---------- Erholungszeiten je Training ----------
+        val regenInfos = workouts.map { w ->
+            val idx = dateIndex[w.workout.start.atZone(zone).toLocalDate()] ?: 0
+            val ctlBefore = if (idx > 0) ctlArr[idx - 1] else init
+            w to Regeneration.recoveryHours(w, ctlBefore)
+        }
+
+        // ---------- Tagesmetriken ----------
         val days = ArrayList<DayMetrics>(n)
         var prevElevated = false
+        val awakeAvgByDate = HashMap<LocalDate, Double>()
+        val stressHourSum = DoubleArray(24)
+        val stressHourCount = IntArray(24)
+        var stressRest = 0
+        var stressHigh = 0
+        var stressTotal = 0
         for ((i, d) in dates.withIndex()) {
+            val (ds, de) = dayBounds(d, zone)
             val window = dates.subList(maxOf(0, i - 30), i)
             val rhrB = Stats.baseline(window.mapNotNull { rhrByDate[it]?.first })
             val lnHrvB = Stats.baseline(window.mapNotNull { hrvByDate[it]?.let(::ln) })
@@ -164,8 +219,81 @@ object Analyzer {
             val illness = rhrElevated && (hrvLow || respHigh || prevElevated)
             prevElevated = rhrElevated
 
+            // Wachphase des Tages
+            val wakeT = night?.end ?: d.atTime(7, 0).atZone(zone).toInstant()
+            val nextBed = nightByDate[d.plusDays(1)]?.start ?: d.atTime(23, 0).atZone(zone).toInstant()
+            val dayEndT = if (nextBed.isAfter(now)) now else nextBed
+            val workoutWindows = (dayWorkouts + workoutsByDate[d.minusDays(1)].orEmpty())
+                .map { it.workout.start to it.workout.end.plusSeconds(15 * 60) }
+            fun inWorkout(t: Instant) = workoutWindows.any { !t.isBefore(it.first) && !t.isAfter(it.second) }
+            val wakingSamples = if (dayEndT.isAfter(wakeT)) hr.sliceByTime(wakeT, dayEndT) { it.time } else emptyList()
+            val nonWorkout = wakingSamples.filter { !inWorkout(it.time) }
+            HeartExtras.timeWeightedMean(nonWorkout, 10, 12)?.let { awakeAvgByDate[d] = it }
+
+            // Herzfrequenz
+            val dayHr = hr.sliceByTime(ds, de) { it.time }
+            val avgHr = HeartExtras.timeWeightedMean(dayHr, 10, 24)
+            val nightHr = night?.let { hr.sliceByTime(it.start, it.end) { s -> s.time } }.orEmpty()
+            val sleepAvg = HeartExtras.timeWeightedMean(nightHr, 5, 12)
+            val prevAwake = awakeAvgByDate[d.minusDays(1)]
+            val dip = if (sleepAvg != null && prevAwake != null && prevAwake > sleepAvg * 0.8) (prevAwake - sleepAvg) / prevAwake * 100 else null
+            val lowest = if (night != null && nightHr.size >= 6) HeartExtras.lowestWindow(nightHr) else null
+            val lowestPos = if (night != null && lowest != null) {
+                (Duration.between(night.start, lowest.second).seconds.toDouble() / Duration.between(night.start, night.end).seconds).clamp(0.0, 1.0)
+            } else {
+                null
+            }
+
+            // Stress (Schätzung) – nur Phasen ohne Bewegung
+            val dayHasHourly = d in hourlyDates
+            // Mit stündlichen Schritten: nur Stunden ohne Bewegung. Ohne diese Daten (gar keine vorhanden): grober Filter.
+            val calmSamples = when {
+                dayHasHourly -> nonWorkout.filter { s -> (hourlyMap[s.time.epochSecond / 3600] ?: 0L) < 100L }
+                hourlyDates.isEmpty() -> nonWorkout.filter { s -> (s.bpm - restRef) / (hrMax - restRef) < 0.4 }
+                else -> emptyList()
+            }
+            val stressVals = calmSamples.map { it to HeartExtras.stressValue(it.bpm, restRef, hrMax) }
+            val stressIndex = if (stressVals.size >= 6) stressVals.map { it.second }.average() else null
+            if (i >= n - 14) {
+                stressVals.forEach { (s, v) ->
+                    val h = s.time.atZone(zone).hour
+                    stressHourSum[h] += v
+                    stressHourCount[h]++
+                }
+            }
+            if (i >= n - 7) {
+                stressVals.forEach { (_, v) ->
+                    stressTotal++
+                    if (v < 25) stressRest++
+                    if (v > 50) stressHigh++
+                }
+            }
+
+            // Aktive / inaktive Stunden
+            var activeH: Int? = null
+            var inactiveH: Int? = null
+            if (dayHasHourly && dayEndT.isAfter(wakeT)) {
+                var a = 0
+                var b = 0
+                var h = (wakeT.epochSecond + 3599) / 3600
+                while ((h + 1) * 3600 <= dayEndT.epochSecond) {
+                    val hs = Instant.ofEpochSecond(h * 3600)
+                    val he = Instant.ofEpochSecond((h + 1) * 3600)
+                    val steps = hourlyMap[h] ?: 0L
+                    val workoutOverlap = workoutWindows.any { it.first.isBefore(he) && it.second.isAfter(hs) }
+                    if (steps >= 250 || workoutOverlap) a++ else b++
+                    h++
+                }
+                activeH = a
+                inactiveH = b
+            }
+            val everyday = HeartExtras.everydayTrimp(nonWorkout, restRef, hrMax, sex)
+
+            // Regeneration am Morgen
+            val regen = Regeneration.progress(Regeneration.pending(regenInfos, wakeT))
+
             val debt = sleepDebt(dates.subList(maxOf(0, i - 6), i + 1).mapNotNull { nightByDate[it] }, goal)
-            val recovery = recoveryScore(rhr?.first, rhrB, dayHrv, lnHrvB, night, dayResp, respB)
+            val recovery = recoveryScore(rhr?.first, rhrB, dayHrv, lnHrvB, night, dayResp, respB, regen)
             val readiness = readinessScore(
                 recovery = recovery,
                 acwr = if (i > 0) acwrArr[i - 1] else null,
@@ -175,7 +303,22 @@ object Analyzer {
                 debt = debt,
                 illness = illness,
             )
+            val nightRec = nightRecovery(dip, lowestPos, lowest?.second, recovery, zone)
+
+            // Schlafbedarf für die kommende Nacht
+            val rel = loads[i] / max(if (i > 0) ctlArr[i - 1] else init, 25.0)
+            val loadAdd = when {
+                rel >= 2.0 -> 30.0
+                rel >= 1.3 -> 20.0
+                rel >= 0.8 -> 10.0
+                else -> 0.0
+            }
+            val debtAdd = minOf(60.0, (debt ?: 0.0) * 60.0 / 5.0)
+            val need = goal * 60.0 + loadAdd + debtAdd
+
             val daily = dailyByDate[d]
+            val weight = data.weight.filter { it.time.atZone(zone).toLocalDate() == d }.maxByOrNull { it.time }?.value
+                ?: snapByDate[d]?.weight
             days += DayMetrics(
                 date = d,
                 sleep = night,
@@ -185,7 +328,7 @@ object Analyzer {
                 respRate = dayResp,
                 spo2 = spo2ByDate[d]?.first,
                 spo2Min = spo2ByDate[d]?.second,
-                steps = daily?.steps,
+                steps = daily?.steps ?: snapByDate[d]?.steps,
                 activeKcal = daily?.activeKcal,
                 totalKcal = daily?.totalKcal,
                 distanceM = daily?.distanceMeters,
@@ -204,17 +347,33 @@ object Analyzer {
                 readiness = readiness,
                 sleepDebtH = debt,
                 illnessFlag = illness,
+                loadFromHr = loadFromHr[i],
+                avgHr = avgHr ?: snapByDate[d]?.avgHr,
+                sleepAvgHr = sleepAvg,
+                hrDipPct = dip,
+                lowestHrPos = lowestPos,
+                nightRecovery = nightRec,
+                stressIndex = stressIndex ?: snapByDate[d]?.stress,
+                activeHours = activeH,
+                inactiveHours = inactiveH,
+                everydayLoad = everyday,
+                regenProgress = regen,
+                lateWorkout = dayWorkouts.any { it.workout.end.atZone(zone).hour >= 20 },
+                sleepNeedMin = need,
+                weight = weight,
+                acuteLoad = acuteArr[i],
+                chronicLoad = chronicArr[i],
             )
         }
 
         val fitness = fitnessReport(data, profile, today, days, workouts, hrMax, hrMaxSource, restRef, age, zone)
         val load = loadReport(days, workouts, today, zone, sex)
-        val sleep = sleepReport(days, nightByDate, today, goal)
-        val activity = activityReport(days, profile)
+        val sleep = sleepReport(days, nightByDate, today, goal, data.sleep, zone, loads, ctlArr)
+        val activity = activityReport(days, profile, workouts, zone, today, hourlyMap, hourlyDates)
         val quality = DataQuality(
             daysWithData = days.count { it.restingHr != null || it.sleep != null || (it.steps ?: 0) > 0 || it.load > 0 },
             hasHeartRate = hr.isNotEmpty(),
-            hasHrv = hrv.isNotEmpty(),
+            hasHrv = hrv.isNotEmpty() || data.history.any { it.hrv != null },
             hasSleep = nightByDate.isNotEmpty(),
             hasSleepStages = nightByDate.values.any { it.hasStages },
             hasWorkouts = workouts.isNotEmpty(),
@@ -224,8 +383,12 @@ object Analyzer {
             hasVo2Device = data.vo2max.isNotEmpty(),
             baselineDays = days.lastOrNull()?.rhrBaseline?.n ?: 0,
         )
+        val regeneration = regenerationReport(days, regenInfos, now, load)
+        val heart = heartReport(days, workouts, hrrByWorkout, nightByDate[today] ?: nightByDate[today.minusDays(1)], hr, zone, today, load)
+        val stress = stressReport(days, stressHourSum, stressHourCount, stressRest, stressHigh, stressTotal, restRef, hrMax, data.hourlySteps.isNotEmpty())
+        val performance = performanceReport(days, workouts, best20ByWorkout, fitness, zone, today, profile)
         val warnings = warnings(days, load, sleep, fitness)
-        return AnalysisResult(
+        val base = AnalysisResult(
             today = today,
             profile = profile,
             days = days,
@@ -237,9 +400,26 @@ object Analyzer {
             warnings = warnings,
             quality = quality,
             isDemo = data.isDemo,
-            generatedAt = data.fetchedAt,
+            generatedAt = now,
             zone = zone,
+            regeneration = regeneration,
+            heart = heart,
+            stress = stress,
+            performance = performance,
         )
+        val bpDevice = data.bloodPressure.filter { ChronoUnit.DAYS.between(it.time.atZone(zone).toLocalDate(), today) <= 90 }
+            .sortedBy { it.time }.takeLast(3)
+        val bp = if (bpDevice.isNotEmpty()) {
+            bpDevice.map { it.systolic }.average() to bpDevice.map { it.diastolic }.average()
+        } else if (profile.bpSystolic != null && profile.bpDiastolic != null) {
+            profile.bpSystolic.toDouble() to profile.bpDiastolic.toDouble()
+        } else {
+            null
+        }
+        val withHeart = base.copy(heartHealth = HeartHealth.build(base, bp, bpDevice.isNotEmpty()), forecast = Forecast.build(days))
+        val baselines = Insights.baselines(withHeart)
+        val withBase = withHeart.copy(baselines = baselines, correlations = Insights.correlations(withHeart), trends = Insights.trends(withHeart))
+        return withBase.copy(briefing = Insights.briefing(withBase))
     }
 
     private fun dayBounds(d: LocalDate, zone: ZoneId): Pair<Instant, Instant> {
@@ -268,6 +448,7 @@ object Analyzer {
         sleep: SleepNight?,
         resp: Double?,
         respB: Baseline?,
+        regen: Int? = null,
     ): Score? {
         val hasHrv = hrv != null && lnHrvB != null
         val comps = mutableListOf<ScoreComponent>()
@@ -277,7 +458,7 @@ object Analyzer {
             comps += ScoreComponent(
                 "HRV",
                 sub(z),
-                0.40,
+                0.35,
                 "${Fmt.int(hrv)} ms – ${Fmt.signed((hrv / ref - 1) * 100)} % zu deinem Schnitt (${Fmt.int(ref)} ms)",
             )
         }
@@ -286,12 +467,12 @@ object Analyzer {
             comps += ScoreComponent(
                 "Ruhepuls",
                 sub(z),
-                if (hasHrv) 0.25 else 0.45,
+                if (hasHrv) 0.20 else 0.40,
                 "${Fmt.num(rhr, 1)} bpm – ${Fmt.signed(rhr - rhrB.mean, 1)} zu deinem Schnitt (${Fmt.num(rhrB.mean, 1)} bpm)",
             )
         }
         if (sleep != null) {
-            comps += ScoreComponent("Schlaf", sleep.score, if (hasHrv) 0.30 else 0.45, "Schlaf-Score ${sleep.score} (${Fmt.duration(sleep.asleepMin)})")
+            comps += ScoreComponent("Schlaf", sleep.score, if (hasHrv) 0.30 else 0.40, "Schlaf-Score ${sleep.score} (${Fmt.duration(sleep.asleepMin)})")
         }
         if (resp != null && respB != null) {
             val zUp = (resp - respB.mean) / max(respB.sd, 0.6)
@@ -299,11 +480,19 @@ object Analyzer {
             comps += ScoreComponent(
                 "Atemfrequenz",
                 s,
-                if (hasHrv) 0.05 else 0.10,
+                if (hasHrv) 0.05 else 0.08,
                 "${Fmt.num(resp, 1)} /min – ${Fmt.signed(resp - respB.mean, 1)} zu deinem Schnitt",
             )
         }
         if (comps.isEmpty()) return null
+        if (regen != null) {
+            comps += ScoreComponent(
+                "Trainingsbelastung",
+                regen,
+                if (hasHrv) 0.10 else 0.12,
+                if (regen >= 100) "Keine offene Erholung aus Trainings" else "Regeneration nach letztem Training zu $regen % abgeschlossen",
+            )
+        }
         val wsum = comps.sumOf { it.weight }
         val value = (comps.sumOf { it.score * it.weight } / wsum).roundToInt().coerceIn(0, 100)
         val physio = listOfNotNull(rhrB?.takeIf { rhr != null }, lnHrvB?.takeIf { hrv != null })
@@ -314,6 +503,29 @@ object Analyzer {
             else -> Confidence.LOW
         }
         return Score(value, comps, confidence)
+    }
+
+    private fun nightRecovery(dip: Double?, lowestPos: Double?, lowestTime: Instant?, recovery: Score?, zone: ZoneId): Score? {
+        val comps = mutableListOf<ScoreComponent>()
+        if (dip != null) {
+            comps += ScoreComponent(
+                "Pulsabsenkung", (100.0 * (dip / 15.0).clamp(0.0, 1.0)).roundToInt(), 0.3,
+                "Puls im Schlaf ${Fmt.num(dip, 0)} % niedriger als am Vorabend (gut: 10–20 %)",
+            )
+        }
+        if (lowestPos != null && lowestTime != null) {
+            val s = if (lowestPos <= 0.6) 100.0 else 100.0 - (lowestPos - 0.6) / 0.4 * 60.0
+            val lt = lowestTime.atZone(zone).toLocalTime()
+            comps += ScoreComponent(
+                "Zeitpunkt des Tiefstwerts", s.roundToInt(), 0.2,
+                String.format(java.util.Locale.GERMANY, "Tiefster Puls um %02d:%02d Uhr (nach %d %% der Nacht)", lt.hour, lt.minute, (lowestPos * 100).roundToInt()),
+            )
+        }
+        recovery?.components?.firstOrNull { it.name == "HRV" }?.let { comps += it.copy(name = "Nächtliche HRV", weight = 0.3) }
+        recovery?.components?.firstOrNull { it.name == "Ruhepuls" }?.let { comps += it.copy(name = "Nächtlicher Ruhepuls", weight = 0.2) }
+        if (comps.size < 2) return null
+        val v = (comps.sumOf { it.score * it.weight } / comps.sumOf { it.weight }).roundToInt()
+        return Score(v, comps, Confidence.MEDIUM)
     }
 
     internal fun acwrScore(acwr: Double): Int = when {
@@ -334,7 +546,7 @@ object Analyzer {
     ): Score? {
         if (recovery == null) return null
         val comps = mutableListOf<ScoreComponent>()
-        comps += ScoreComponent("Erholung", recovery.value, 0.5, "Erholungswert ${recovery.value} von 100")
+        comps += ScoreComponent("Erholung", recovery.value, 0.5, "Persönlicher Erholungswert ${recovery.value} von 100")
         if (acwr != null) {
             comps += ScoreComponent("Belastungssteigerung", acwrScore(acwr), 0.2, "ACWR ${Fmt.num(acwr, 2)} (optimal 0,8–1,3)")
         }
@@ -369,9 +581,8 @@ object Analyzer {
         val sex = profile.sex
         val deviceVo2 = data.vo2max.filter { it.value in 15.0..90.0 }.sortedBy { it.time }
         val recentDevice = deviceVo2.filter { ChronoUnit.DAYS.between(it.time.atZone(zone).toLocalDate(), today) <= 60 }
-        val runVo2 = workouts.filter { it.vo2Estimate != null }
-            .filter { ChronoUnit.DAYS.between(it.workout.start.atZone(zone).toLocalDate(), today) <= 90 }
-            .sortedBy { it.workout.start }
+        val runVo2All = workouts.filter { it.vo2Estimate != null }.sortedBy { it.workout.start }
+        val runVo2 = runVo2All.filter { ChronoUnit.DAYS.between(it.workout.start.atZone(zone).toLocalDate(), today) <= 90 }
         val restNow = Stats.median(days.takeLast(14).mapNotNull { it.restingHr })
         val (vo2, method) = when {
             recentDevice.isNotEmpty() -> Stats.median(recentDevice.takeLast(3).map { it.value }) to Vo2Method.DEVICE
@@ -381,7 +592,7 @@ object Analyzer {
         }
         val history = when (method) {
             Vo2Method.DEVICE -> deviceVo2.map { it.time.atZone(zone).toLocalDate() to it.value }
-            Vo2Method.RUNNING -> runVo2.map { it.workout.start.atZone(zone).toLocalDate() to it.vo2Estimate!! }
+            Vo2Method.RUNNING -> runVo2All.map { it.workout.start.atZone(zone).toLocalDate() to it.vo2Estimate!! }
             else -> emptyList()
         }
         val catIdx = if (vo2 != null && age != null) FitnessMath.vo2Category(vo2, age, sex) else null
@@ -514,53 +725,453 @@ object Analyzer {
         }
     }
 
-    private fun sleepReport(days: List<DayMetrics>, nights: Map<LocalDate, SleepNight>, today: LocalDate, goal: Double): SleepReport {
+    private fun sleepReport(
+        days: List<DayMetrics>,
+        nights: Map<LocalDate, SleepNight>,
+        today: LocalDate,
+        goal: Double,
+        sessions: List<SleepSession>,
+        zone: ZoneId,
+        loads: List<Double>,
+        ctlArr: DoubleArray,
+    ): SleepReport {
         val last = nights[today] ?: nights[today.minusDays(1)]
         val n7 = days.takeLast(7).mapNotNull { it.sleep }
         val n14 = days.takeLast(14).mapNotNull { it.sleep }
         val n30 = days.takeLast(30).mapNotNull { it.sleep }
         val staged = n14.filter { it.hasStages }
+        val t = days.lastOrNull()
+
+        // persönlicher Schlafbedarf
+        val pairs = days.takeLast(120).mapNotNull { d ->
+            val night = d.sleep ?: return@mapNotNull null
+            val zs = mutableListOf<Double>()
+            val hrv = d.hrv
+            val hb = d.lnHrvBaseline
+            if (hrv != null && hb != null) zs += (ln(hrv) - hb.mean) / max(hb.sd, 0.08)
+            val rhr = d.restingHr
+            val rb = d.rhrBaseline
+            if (rhr != null && rb != null) zs += -(rhr - rb.mean) / max(rb.sd, 2.0)
+            if (zs.isEmpty()) null else night.asleepMin to zs.average()
+        }
+        val personal = SleepMath.personalNeed(pairs)
+
+        val reasons = mutableListOf<String>()
+        if (t != null && days.size >= 2) {
+            val i = days.size - 1
+            val rel = loads[i] / max(ctlArr[i - 1], 25.0)
+            when {
+                rel >= 2.0 -> reasons += "+30 min wegen sehr hoher Trainingsbelastung heute"
+                rel >= 1.3 -> reasons += "+20 min wegen hoher Trainingsbelastung heute"
+                rel >= 0.8 -> reasons += "+10 min wegen Training heute"
+            }
+            val debt = t.sleepDebtH ?: 0.0
+            if (debt > 0.25) reasons += "+${Fmt.int(minOf(60.0, debt * 60.0 / 5.0))} min zum Abbau deiner Schlafschuld"
+        }
+        val need = t?.sleepNeedMin
+        val avgWake = Stats.mean(n14.map { it.wakeMin })
+        val avgAwake = Stats.mean(n7.map { it.inBedMin - it.asleepMin }) ?: 0.0
+        val bedtime = if (need != null && avgWake != null) avgWake - need - avgAwake else null
+        val d14 = days.takeLast(14).mapNotNull { it.sleep }
         return SleepReport(
             lastNight = last,
             avgAsleep7Min = Stats.mean(n7.map { it.asleepMin }),
             avgAsleep30Min = Stats.mean(n30.map { it.asleepMin }),
-            debt7H = days.lastOrNull()?.sleepDebtH,
+            debt7H = t?.sleepDebtH,
             regularitySdMin = if (n14.size >= 5) Stats.sd(n14.map { it.midpointMin }) else null,
             avgBedtimeMin = Stats.mean(n14.map { it.bedtimeMin }),
-            avgWakeMin = Stats.mean(n14.map { it.wakeMin }),
+            avgWakeMin = avgWake,
             avgDeepPct = Stats.mean(staged.mapNotNull { it.deepPct }),
             avgRemPct = Stats.mean(staged.mapNotNull { it.remPct }),
             avgEfficiency = Stats.mean(n14.mapNotNull { it.efficiency }),
             avgScore7 = Stats.mean(n7.map { it.score.toDouble() }),
             nights = n30.size,
             goalHours = goal,
+            debt14H = if (d14.size >= 5) d14.sumOf { goal - it.asleepMin / 60.0 }.coerceAtLeast(0.0) else null,
+            sri = SleepMath.sri(sessions, today, zone, 14),
+            personalNeedH = personal?.first,
+            personalNeedNights = personal?.second ?: 0,
+            needTonightMin = need,
+            needReasons = reasons,
+            recommendedBedtimeMin = bedtime,
+            avgInBed7Min = Stats.mean(n7.map { it.inBedMin }),
+            nightRecovery = t?.nightRecovery,
+            nightRestingHr = t?.restingHr?.takeIf { t.restingHrSource == RhrSource.SLEEP },
+            nightHrv = t?.hrv,
         )
     }
 
-    private fun activityReport(days: List<DayMetrics>, profile: UserProfile): ActivityReport {
+    private fun activityReport(
+        days: List<DayMetrics>,
+        profile: UserProfile,
+        workouts: List<WorkoutAnalysis>,
+        zone: ZoneId,
+        today: LocalDate,
+        hourlyMap: Map<Long, Long>,
+        hourlyDates: Set<LocalDate>,
+    ): ActivityReport {
         val last7 = days.takeLast(7)
         val complete7 = days.dropLast(1).takeLast(7)
+        val prev7 = days.dropLast(7).takeLast(7)
+        val t = days.lastOrNull()
+
+        // Schritte je Tagesstunde (14 Tage)
+        val byHour = DoubleArray(24)
+        val hourDays = days.takeLast(15).dropLast(1).map { it.date }.filter { it in hourlyDates }
+        for (d in hourDays) {
+            for (h in 0 until 24) {
+                val idx = d.atTime(h, 0).atZone(zone).toInstant().epochSecond / 3600
+                byHour[h] += (hourlyMap[idx] ?: 0L).toDouble()
+            }
+        }
+        val stepsByHour = if (hourDays.isNotEmpty()) byHour.map { it / hourDays.size } else emptyList()
+
+        val activeAvg = Stats.mean(complete7.mapNotNull { it.activeHours?.toDouble() })
+        val inactiveAvg = Stats.mean(complete7.mapNotNull { it.inactiveHours?.toDouble() })
+        val steps7 = Stats.mean(complete7.mapNotNull { it.steps?.toDouble() })
+        val who = last7.sumOf { it.moderateMin + 2.0 * it.vigorousMin }
+        val comps = mutableListOf<ScoreComponent>()
+        if (steps7 != null) {
+            comps += ScoreComponent(
+                "Schritte", (100.0 * (steps7 / profile.stepGoal).clamp(0.0, 1.0)).roundToInt(), 0.4,
+                "Ø ${Fmt.int(steps7)} von ${Fmt.int(profile.stepGoal.toLong())} Schritten",
+            )
+        }
+        if (activeAvg != null && inactiveAvg != null && activeAvg + inactiveAvg > 0) {
+            val share = activeAvg / (activeAvg + inactiveAvg)
+            comps += ScoreComponent(
+                "Aktive Stunden", (100.0 * (share / 0.75).clamp(0.0, 1.0)).roundToInt(), 0.3,
+                "Ø ${Fmt.num(activeAvg, 1)} von ${Fmt.num(activeAvg + inactiveAvg, 1)} Wachstunden mit ≥ 250 Schritten",
+            )
+        }
+        comps += ScoreComponent(
+            "Aktivminuten", (100.0 * (who / 150.0).clamp(0.0, 1.0)).roundToInt(), 0.3,
+            "${Fmt.int(who)} von 150 WHO-Minuten in 7 Tagen",
+        )
+        val movement = if (comps.size >= 2) {
+            Score((comps.sumOf { it.score * it.weight } / comps.sumOf { it.weight }).roundToInt(), comps, Confidence.MEDIUM)
+        } else {
+            null
+        }
+        val steps14 = days.dropLast(1).takeLast(14).mapNotNull { it.steps?.toDouble() }
+        val cv = if (steps14.size >= 7) {
+            val m = steps14.average()
+            if (m > 0) (Stats.sd(steps14) ?: 0.0) / m else null
+        } else {
+            null
+        }
+
+        fun balance(list: List<DayMetrics>) = WeekBalance(
+            steps = list.sumOf { it.steps ?: 0L },
+            activeMinutes = list.sumOf { it.moderateMin + it.vigorousMin },
+            load = list.sumOf { it.load },
+            activeKcal = list.sumOf { it.activeKcal ?: 0.0 },
+            workouts = list.sumOf { it.workoutCount },
+        )
+
+        val every7 = Stats.mean(complete7.map { it.everydayLoad })
+        val load7avg = complete7.map { it.load }.average().takeIf { !it.isNaN() } ?: 0.0
+        val actK = complete7.sumOf { it.activeKcal ?: 0.0 }
+        val totK = complete7.sumOf { it.totalKcal ?: 0.0 }
+
+        // Erholungsphasen zwischen harten Einheiten
+        val ctlNow = t?.ctl ?: 30.0
+        val hard = workouts.filter { w ->
+            ChronoUnit.DAYS.between(w.workout.start.atZone(zone).toLocalDate(), today) in 0..27 &&
+                (w.focus.contains("hart") || w.trimp >= 1.3 * max(ctlNow, 30.0))
+        }.sortedBy { it.workout.start }
+        val gaps = hard.zipWithNext { a, b -> Duration.between(a.workout.end, b.workout.start).seconds / 3600.0 }
+        val runs = workouts.filter {
+            it.workout.type == SportType.RUNNING && it.workout.steps != null && it.durationMin >= 10 &&
+                ChronoUnit.DAYS.between(it.workout.start.atZone(zone).toLocalDate(), today) <= 28
+        }
+        val cadence = Stats.median(runs.map { it.workout.steps!! / it.durationMin }.filter { it in 100.0..230.0 })
         return ActivityReport(
-            stepsToday = days.lastOrNull()?.steps,
+            stepsToday = t?.steps,
             stepsYesterday = days.dropLast(1).lastOrNull()?.steps,
-            steps7Avg = Stats.mean(complete7.mapNotNull { it.steps?.toDouble() }),
+            steps7Avg = steps7,
             stepGoal = profile.stepGoal,
             daysGoalReached7 = last7.count { (it.steps ?: 0) >= profile.stepGoal },
-            activeKcalToday = days.lastOrNull()?.activeKcal,
+            activeKcalToday = t?.activeKcal,
             activeKcal7Avg = Stats.mean(complete7.mapNotNull { it.activeKcal }),
             totalKcal7Avg = Stats.mean(complete7.mapNotNull { it.totalKcal }),
-            whoMinutes7 = last7.sumOf { it.moderateMin + 2.0 * it.vigorousMin },
+            whoMinutes7 = who,
+            activeHoursToday = t?.activeHours,
+            inactiveHoursToday = t?.inactiveHours,
+            inactiveHours7Avg = inactiveAvg,
+            activeHours7Avg = activeAvg,
+            stepsByHour = stepsByHour,
+            movementIndex = movement,
+            regularity = cv?.let { (100.0 * (1.0 - it)).clamp(0.0, 100.0).roundToInt() },
+            stepsCv14 = cv,
+            thisWeek = balance(last7),
+            lastWeek = if (prev7.size >= 7) balance(prev7) else null,
+            everydayLoadToday = t?.everydayLoad ?: 0.0,
+            everydayLoad7Avg = every7,
+            everydayShare7 = every7?.let { if (it + load7avg > 0) it / (it + load7avg) else null },
+            activeKcalShare7 = if (totK > 0) actK / totK else null,
+            hardSessionGapAvgH = Stats.mean(gaps),
+            shortGaps28 = gaps.count { it < 48 },
+            runCadence = cadence,
+            hasHourlySteps = hourlyDates.isNotEmpty(),
+        )
+    }
+
+    private fun regenerationReport(
+        days: List<DayMetrics>,
+        infos: List<Pair<WorkoutAnalysis, Double>>,
+        now: Instant,
+        load: LoadReport,
+    ): RegenerationReport {
+        val t = days.lastOrNull()
+        val pendingNow = Regeneration.pending(infos, now)
+        val binding = pendingNow.filter { it.remainingH > 0 }.maxByOrNull { it.remainingH }
+        val timeProgress = Regeneration.progress(pendingNow)
+        val auto = t?.recovery?.components?.filter { it.name == "HRV" || it.name == "Ruhepuls" }?.map { it.score.toDouble() }
+            ?.takeIf { it.isNotEmpty() }?.average()
+        // Autonome Erholung: 65 Punkte = persönlicher Normalwert → 100 %
+        val autoNorm = auto?.let { (it / 65.0 * 100.0).clamp(0.0, 100.0) }
+        val index = if (autoNorm != null) (0.6 * timeProgress + 0.4 * autoNorm).roundToInt() else timeProgress
+        val modifier = when {
+            auto == null -> 1.0
+            auto < 50 -> 1.2
+            auto >= 70 -> 0.85
+            else -> 1.0
+        }
+        val remaining = (binding?.remainingH ?: 0.0) * modifier
+        val recent = infos.takeLast(6).reversed().map { (w, h) ->
+            val elapsed = Duration.between(w.workout.end, now).seconds / 3600.0
+            RecoveryTimeInfo(w, h, (h - elapsed).coerceAtLeast(0.0), w.workout.end.plusSeconds((h * 3600).toLong()))
+        }
+        val fatigue = if (load.ctl > 0 || load.atl > 0) Regeneration.fatigueIndex(load.atl, load.ctl) else null
+        val (fLabel, fTone) = fatigue?.let { Regeneration.fatigueLabel(it) } ?: ("keine Daten" to Tone.NEUTRAL)
+        val strainRel = if (load.ctl > 0) load.atl / max(load.ctl, 15.0) else null
+        val rec7 = Stats.mean(days.takeLast(7).mapNotNull { it.recovery?.value?.toDouble() })
+        val recoveryRel = rec7?.let { it / 65.0 }
+        val balance = if (strainRel != null && recoveryRel != null && recoveryRel > 0) strainRel / recoveryRel else null
+        val (bLabel, bTone) = balance?.let { Regeneration.balanceLabel(it) } ?: ("keine Daten" to Tone.NEUTRAL)
+
+        // Überlastungsindikator
+        val signals = mutableListOf<String>()
+        load.acwr?.let { if (it > 1.5) signals += "Belastung sprunghaft gestiegen (ACWR ${Fmt.num(it, 2)})" else if (it > 1.3) signals += "Belastung deutlich gesteigert (ACWR ${Fmt.num(it, 2)})" }
+        load.monotony?.let { if (it > 2.0) signals += "Sehr gleichförmiges Training (Monotonie ${Fmt.num(it, 1)})" }
+        val hb = t?.lnHrvBaseline
+        val hrv7 = days.takeLast(7).mapNotNull { it.hrv?.let(::ln) }
+        if (hb != null && hb.n >= 14 && hrv7.size >= 4 && hrv7.average() < hb.mean - 0.75 * hb.sd) signals += "HRV seit Tagen unter Normalbereich"
+        val rb = t?.rhrBaseline
+        val rhr7 = Stats.median(days.takeLast(7).mapNotNull { it.restingHr })
+        if (rb != null && rhr7 != null && rhr7 - rb.mean >= 3.0) signals += "Ruhepuls seit Tagen ${Fmt.num(rhr7 - rb.mean, 1)} bpm erhöht"
+        if (rec7 != null && rec7 < 50) signals += "Erholung im 7-Tage-Schnitt niedrig (${Fmt.int(rec7)})"
+        t?.sleepDebtH?.let { if (it > 5) signals += "Schlafdefizit ${Fmt.num(it, 1)} h in 7 Tagen" }
+        if (fatigue != null && fatigue > 75) signals += "Hoher Ermüdungsindex ($fatigue)"
+        val r3 = days.takeLast(4).mapNotNull { it.readiness?.value }
+        if (r3.size == 4 && r3.zipWithNext().all { (a, b) -> b < a } && r3.first() - r3.last() >= 10) signals += "Trainingsbereitschaft sinkt seit 3 Tagen"
+        val level = when {
+            signals.size >= 3 -> 2
+            signals.size == 2 -> 1
+            else -> 0
+        }
+        val (oLabel, oTone) = when (level) {
+            2 -> "Deutliche Hinweise auf Überlastung" to Tone.BAD
+            1 -> "Erste Hinweise auf Überlastung" to Tone.WARN
+            else -> (if (signals.isEmpty()) "Keine Hinweise auf Überlastung" else "Kaum Hinweise auf Überlastung") to Tone.GOOD
+        }
+        val hrv30 = Stats.mean(days.takeLast(30).mapNotNull { it.hrv })
+        val hrv7m = Stats.mean(days.takeLast(7).mapNotNull { it.hrv })
+        val rhrNow = t?.restingHr
+        return RegenerationReport(
+            regenerationIndex = if (infos.isEmpty() && auto == null) null else index.coerceIn(0, 100),
+            timeProgress = timeProgress,
+            remainingHours = remaining,
+            readyAt = if (remaining > 0) now.plusSeconds((remaining * 3600).toLong()) else null,
+            binding = binding,
+            recent = recent,
+            fatigueIndex = fatigue,
+            fatigueLabel = fLabel,
+            fatigueTone = fTone,
+            strainRel = strainRel,
+            recoveryRel = recoveryRel,
+            balance = balance,
+            balanceLabel = bLabel,
+            balanceTone = bTone,
+            load7 = days.takeLast(7).sumOf { it.load },
+            load28 = days.takeLast(28).sumOf { it.load },
+            load90 = days.takeLast(90).sumOf { it.load },
+            overloadSignals = signals,
+            overloadLevel = level,
+            overloadLabel = oLabel,
+            overloadTone = oTone,
+            hrvTrendPct = if (hrv7m != null && hrv30 != null && hrv30 > 0) (hrv7m / hrv30 - 1) * 100 else null,
+            rhrDeviation = if (rhrNow != null && rb != null) rhrNow - rb.mean else null,
+            rhrDeviationZ = if (rhrNow != null && rb != null) (rhrNow - rb.mean) / max(rb.sd, 1.0) else null,
+        )
+    }
+
+    private fun weekly(days: List<DayMetrics>, weeks: Int, pick: (DayMetrics) -> Double?): List<Pair<LocalDate, Double>> =
+        days.groupBy { it.date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)) }
+            .toSortedMap()
+            .mapNotNull { (wk, list) -> list.mapNotNull(pick).takeIf { it.size >= 2 }?.let { wk to it.average() } }
+            .takeLast(weeks)
+
+    private fun heartReport(
+        days: List<DayMetrics>,
+        workouts: List<WorkoutAnalysis>,
+        hrr: Map<Instant, Triple<Int, Int, Boolean>>,
+        lastNight: SleepNight?,
+        hr: List<HeartRateSample>,
+        zone: ZoneId,
+        today: LocalDate,
+        load: LoadReport,
+    ): HeartReport {
+        val t = days.lastOrNull()
+        val complete = days.dropLast(1)
+        fun meanOf(list: List<DayMetrics>, f: (DayMetrics) -> Double?) = Stats.mean(list.mapNotNull(f))
+        val hrrList = workouts.filter { hrr.containsKey(it.workout.start) && ChronoUnit.DAYS.between(it.workout.start.atZone(zone).toLocalDate(), today) <= 120 }
+            .sortedByDescending { it.workout.start }
+            .map { w ->
+                val (peak, drop, after) = hrr.getValue(w.workout.start)
+                HrrResult(w.workout.start.atZone(zone).toLocalDate(), w.workout.title ?: w.workout.type.label, peak, drop, after)
+            }
+        val hrrTrend = if (hrrList.size >= 6) {
+            (Stats.median(hrrList.take(3).map { it.drop60.toDouble() }) ?: 0.0) - (Stats.median(hrrList.drop(3).take(3).map { it.drop60.toDouble() }) ?: 0.0)
+        } else {
+            null
+        }
+        val ln7 = days.takeLast(7).mapNotNull { it.hrv?.let(::ln) }
+        val cv = if (ln7.size >= 5) (Stats.sd(ln7) ?: 0.0) / ln7.average() * 100 else null
+        val yearAgo = days.filter { ChronoUnit.DAYS.between(it.date, today) in 335..365 }.mapNotNull { it.restingHr }
+        return HeartReport(
+            avgHrToday = t?.avgHr,
+            avgHr7 = meanOf(complete.takeLast(7)) { it.avgHr },
+            avgHr30 = meanOf(complete.takeLast(30)) { it.avgHr },
+            sleepAvgHr = t?.sleepAvgHr,
+            dipPct = t?.hrDipPct,
+            dipAvg7 = meanOf(days.takeLast(7)) { it.hrDipPct },
+            lowestHrPos = t?.lowestHrPos,
+            nightCurve = lastNight?.let { HeartExtras.curve(hr.sliceByTime(it.start, it.end) { s -> s.time }, 5) }.orEmpty(),
+            rhrSd14 = Stats.sd(days.takeLast(14).mapNotNull { it.restingHr })?.takeIf { days.takeLast(14).count { it.restingHr != null } >= 7 },
+            hrvCv7 = cv,
+            hrv7 = meanOf(days.takeLast(7)) { it.hrv },
+            hrv30 = meanOf(days.takeLast(30)) { it.hrv },
+            hrv90 = meanOf(days.takeLast(90)) { it.hrv },
+            hrv180 = meanOf(days.takeLast(180)) { it.hrv },
+            hrvWeekly = weekly(days.takeLast(182), 26) { it.hrv },
+            rhr7 = meanOf(days.takeLast(7)) { it.restingHr },
+            rhr30 = meanOf(days.takeLast(30)) { it.restingHr },
+            rhr90 = meanOf(days.takeLast(90)) { it.restingHr },
+            rhr365 = if (yearAgo.size >= 7) yearAgo.average() else null,
+            rhrWeekly = weekly(days.takeLast(365), 52) { it.restingHr },
+            hrr = hrrList,
+            hrrTrend = hrrTrend,
+            trainingHighHrPct28 = load.hardPct,
+        )
+    }
+
+    private fun stressReport(
+        days: List<DayMetrics>,
+        hourSum: DoubleArray,
+        hourCount: IntArray,
+        rest: Int,
+        high: Int,
+        total: Int,
+        restRef: Double,
+        hrMax: Int,
+        reliable: Boolean,
+    ): StressReport {
+        val t = days.lastOrNull()
+        val today = t?.stressIndex
+        val avg7 = Stats.mean(days.takeLast(7).mapNotNull { it.stressIndex })
+        val ref = avg7 ?: today
+        val (label, tone) = ref?.let { HeartExtras.stressLabel(it) } ?: ("keine Daten" to Tone.NEUTRAL)
+        val nightHr = t?.sleepAvgHr
+        return StressReport(
+            today = today,
+            avg7 = avg7,
+            avg30 = Stats.mean(days.takeLast(30).mapNotNull { it.stressIndex }),
+            label = label,
+            tone = tone,
+            byHour = (0 until 24).map { h -> if (hourCount[h] >= 3) hourSum[h] / hourCount[h] else null },
+            restPct = if (total >= 20) rest.toDouble() / total else null,
+            highPct = if (total >= 20) high.toDouble() / total else null,
+            nightStress = nightHr?.let { HeartExtras.stressValue(it.roundToInt(), restRef, hrMax) },
+            daily = days.takeLast(30).map { it.date to it.stressIndex },
+            reliable = reliable,
+        )
+    }
+
+    private fun performanceReport(
+        days: List<DayMetrics>,
+        workouts: List<WorkoutAnalysis>,
+        best20: Map<Instant, Double>,
+        fitness: FitnessReport,
+        zone: ZoneId,
+        today: LocalDate,
+        profile: UserProfile,
+    ): PerformanceReport {
+        fun age(w: WorkoutAnalysis) = ChronoUnit.DAYS.between(w.workout.start.atZone(zone).toLocalDate(), today)
+        val hrMax = fitness.hrMax
+        val rest = fitness.zones.firstOrNull()?.let { z -> (z.lowBpm - 0.5 * hrMax) / 0.5 } ?: 60.0
+        val runs = workouts.filter { it.workout.type == SportType.RUNNING && it.workout.distanceMeters != null && it.durationMin >= 20 && age(it) <= 90 }
+            .sortedBy { it.workout.start }
+        val steady = runs.filter { w ->
+            val avg = w.avgHr ?: return@filter false
+            val hrr = (avg - rest) / (hrMax - rest)
+            hrr in 0.5..0.85
+        }
+        fun ef(w: WorkoutAnalysis) = (w.workout.distanceMeters!! / w.durationMin) / w.avgHr!!
+        val efRecent = Stats.median(steady.filter { age(it) <= 27 }.map(::ef))
+        val efPrev = Stats.median(steady.filter { age(it) in 28..55 }.map(::ef))
+        val z2 = fitness.zones.firstOrNull { it.number == 2 }
+        val z2Hr = z2?.let { (it.lowBpm + it.highBpm) / 2 }
+        val lthrCand = workouts.filter { best20.containsKey(it.workout.start) && age(it) <= 90 }
+            .maxByOrNull { best20.getValue(it.workout.start) }
+        val lthr = lthrCand?.let { best20.getValue(it.workout.start) }?.takeIf { it >= 0.85 * hrMax }
+        val recent28 = workouts.filter { age(it) in 0..27 }
+        val rides = workouts.filter { it.workout.type == SportType.CYCLING && age(it) <= 90 }
+        val power = Stats.mean(rides.mapNotNull { it.workout.avgPowerW }.filter { it > 20 })
+        val weight = fitness.weightKg ?: profile.weightKg
+        val speed = Stats.mean(rides.mapNotNull { w -> w.workout.distanceMeters?.let { it / 1000.0 / (w.durationMin / 60.0) } }.filter { it in 8.0..60.0 })
+        val hist = fitness.vo2History.sortedBy { it.first }
+        val vo2Change = if (hist.size >= 2) {
+            val latest = hist.last()
+            val old = hist.lastOrNull { ChronoUnit.DAYS.between(it.first, latest.first) >= 60 }
+            old?.let { latest.second - it.second }
+        } else {
+            null
+        }
+        return PerformanceReport(
+            efRecent = efRecent,
+            efPrevious = efPrev,
+            efChangePct = if (efRecent != null && efPrev != null) (efRecent / efPrev - 1) * 100 else null,
+            paceAtZ2SecKm = if (efRecent != null && z2Hr != null) 60000.0 / (efRecent * z2Hr) else null,
+            z2Hr = z2Hr,
+            runPaces = runs.mapNotNull { w -> w.paceSecPerKm?.let { w.workout.start.atZone(zone).toLocalDate() to it } },
+            efSeries = steady.map { it.workout.start.atZone(zone).toLocalDate() to ef(it) },
+            lthr = lthr?.roundToInt(),
+            lthrDate = if (lthr != null) lthrCand?.workout?.start?.atZone(zone)?.toLocalDate() else null,
+            hardMin28 = recent28.sumOf { it.zoneMin.getOrElse(4) { 0.0 } + it.zoneMin.getOrElse(5) { 0.0 } },
+            peakHr90 = workouts.filter { age(it) <= 90 }.mapNotNull { it.maxHr }.maxOrNull(),
+            hardSessions28 = recent28.count { it.focus.contains("hart") },
+            cyclingPowerAvg = power,
+            cyclingWkg = if (power != null && weight != null) power / weight else null,
+            cyclingSpeedKmh = speed,
+            load7 = days.takeLast(7).sumOf { it.load },
+            load28 = days.takeLast(28).sumOf { it.load },
+            load90 = days.takeLast(90).sumOf { it.load },
+            vo2Change90 = vo2Change,
+            runCount90 = runs.size,
         )
     }
 
     private fun warnings(days: List<DayMetrics>, load: LoadReport, sleep: SleepReport, fitness: FitnessReport): List<HealthWarning> {
         val out = mutableListOf<HealthWarning>()
         val t = days.lastOrNull() ?: return out
-        if (t.illnessFlag) {
-            val diff = t.restingHr!! - t.rhrBaseline!!.mean
+        val tRhr = t.restingHr
+        val tBase = t.rhrBaseline
+        if (t.illnessFlag && tRhr != null && tBase != null) {
             out += HealthWarning(
                 "Frühwarnung: Körper unter Stress",
-                "Dein Ruhepuls liegt ${Fmt.int(diff)} Schläge über deinem Normalwert und weitere Werte (HRV/Atmung) sind auffällig. " +
+                "Dein Ruhepuls liegt ${Fmt.int(tRhr - tBase.mean)} Schläge über deinem Normalwert und weitere Werte (HRV/Atmung) sind auffällig. " +
                     "Dieses Muster tritt häufig 1–2 Tage vor einer Erkältung oder bei starker Überlastung auf. Schone dich heute.",
                 Tone.BAD,
             )

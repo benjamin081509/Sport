@@ -6,6 +6,8 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
+import androidx.health.connect.client.records.BloodPressureRecord
+import androidx.health.connect.client.records.PowerRecord
 import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
@@ -21,11 +23,14 @@ import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.Vo2MaxRecord
 import androidx.health.connect.client.records.WeightRecord
+import androidx.health.connect.client.request.AggregateGroupByDurationRequest
 import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
+import de.vitalcoach.core.BloodPressure
 import de.vitalcoach.core.DailyActivity
+import de.vitalcoach.core.HourlySteps
 import de.vitalcoach.core.HealthData
 import de.vitalcoach.core.HeartRateSample
 import de.vitalcoach.core.HrvSample
@@ -35,6 +40,7 @@ import de.vitalcoach.core.SleepStage
 import de.vitalcoach.core.SportType
 import de.vitalcoach.core.TimedValue
 import de.vitalcoach.core.Workout
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.Period
@@ -70,6 +76,8 @@ class HealthConnectRepository(private val context: Context) {
         HealthPermission.getReadPermission(WeightRecord::class),
         HealthPermission.getReadPermission(HeightRecord::class),
         HealthPermission.getReadPermission(BodyFatRecord::class),
+        HealthPermission.getReadPermission(BloodPressureRecord::class),
+        HealthPermission.getReadPermission(PowerRecord::class),
     )
 
     /** Wichtigste Berechtigungen – ohne diese ist keine sinnvolle Auswertung möglich. */
@@ -97,27 +105,42 @@ class HealthConnectRepository(private val context: Context) {
         emptySet()
     }
 
-    /** Liest die letzten [days] Tage. Fehlende Berechtigungen führen nur zu leeren Listen, nicht zu Fehlern. */
-    suspend fun readAll(days: Long = 90, zone: ZoneId = ZoneId.systemDefault()): HealthData {
+    /**
+     * Liest Pulsrohdaten der letzten [hrDays] Tage und alle übrigen Daten für [days] Tage.
+     * Fehlende Berechtigungen führen nur zu leeren Listen, nicht zu Fehlern.
+     */
+    suspend fun readAll(days: Long = 365, hrDays: Long = 120, zone: ZoneId = ZoneId.systemDefault(), onProgress: (String) -> Unit = {}): HealthData {
         val now = Instant.now()
         val today = LocalDate.now(zone)
         val from = today.minusDays(days - 1).minusDays(1).atStartOfDay(zone).toInstant()
         val range = TimeRangeFilter.between(from, now)
+        val hrFrom = today.minusDays(hrDays - 1).minusDays(1).atStartOfDay(zone).toInstant()
+        val hrRange = TimeRangeFilter.between(hrFrom, now)
 
-        val hr = read(HeartRateRecord::class, range).flatMap { r ->
+        onProgress("Herzfrequenz")
+        val hr = read(HeartRateRecord::class, hrRange).flatMap { r ->
             r.samples.map { HeartRateSample(it.time, it.beatsPerMinute.toInt()) }
         }
         val hrv = read(HeartRateVariabilityRmssdRecord::class, range).map { HrvSample(it.time, it.heartRateVariabilityMillis) }
         val resting = read(RestingHeartRateRecord::class, range).map { TimedValue(it.time, it.beatsPerMinute.toDouble()) }
+        onProgress("Schlaf & HRV")
         val sleep = read(SleepSessionRecord::class, range).map { s ->
             SleepSession(s.startTime, s.endTime, s.stages.map { SleepSegment(it.startTime, it.endTime, mapStage(it.stage)) })
         }
+        onProgress("Trainings")
         val sessions = read(ExerciseSessionRecord::class, range)
+        val hrCutoff = hrFrom
         val workouts = sessions.map { s ->
             val type = mapExercise(s.exerciseType)
-            val (dist, kcal) = sessionAggregates(s.startTime, s.endTime, type)
-            Workout(s.startTime, s.endTime, type, s.title, dist, kcal)
+            // Detailwerte (Distanz, Kalorien, Schritte, Leistung) nur für die letzten Monate abfragen
+            if (s.startTime.isBefore(hrCutoff)) {
+                Workout(s.startTime, s.endTime, type, s.title)
+            } else {
+                val agg = sessionAggregates(s.startTime, s.endTime, type)
+                Workout(s.startTime, s.endTime, type, s.title, agg.distance, agg.kcal, agg.steps, agg.power)
+            }
         }
+        onProgress("Vitalwerte")
         val spo2 = read(OxygenSaturationRecord::class, range).map { TimedValue(it.time, it.percentage.value) }
         val resp = read(RespiratoryRateRecord::class, range).map { TimedValue(it.time, it.rate) }
         val vo2 = read(Vo2MaxRecord::class, range).map { TimedValue(it.time, it.vo2MillilitersPerMinuteKilogram) }
@@ -125,6 +148,12 @@ class HealthConnectRepository(private val context: Context) {
         val weight = read(WeightRecord::class, longRange).map { TimedValue(it.time, it.weight.inKilograms) }
         val height = read(HeightRecord::class, longRange).map { TimedValue(it.time, it.height.inMeters * 100.0) }
         val bodyFat = read(BodyFatRecord::class, longRange).map { TimedValue(it.time, it.percentage.value) }
+        val bp = read(BloodPressureRecord::class, longRange).map {
+            BloodPressure(it.time, it.systolic.inMillimetersOfMercury, it.diastolic.inMillimetersOfMercury)
+        }
+        onProgress("Schritte")
+        val daily = dailyActivity(today.minusDays(days - 1), today)
+        val hourly = hourlySteps(hrFrom, now)
 
         return HealthData(
             heartRate = hr,
@@ -132,13 +161,15 @@ class HealthConnectRepository(private val context: Context) {
             restingHr = resting,
             sleep = sleep,
             workouts = workouts,
-            daily = dailyActivity(today.minusDays(days - 1), today),
+            daily = daily,
             spo2 = spo2,
             respiratoryRate = resp,
             vo2max = vo2,
             weight = weight,
             height = height,
             bodyFat = bodyFat,
+            bloodPressure = bp,
+            hourlySteps = hourly,
             zone = zone,
             fetchedAt = now,
             isDemo = false,
@@ -199,7 +230,31 @@ class HealthConnectRepository(private val context: Context) {
         }.toList()
     }
 
-    private suspend fun sessionAggregates(start: Instant, end: Instant, type: SportType): Pair<Double?, Double?> {
+    /** Schritte pro Stunde, in 30-Tage-Abschnitten abgefragt. */
+    private suspend fun hourlySteps(from: Instant, to: Instant): List<HourlySteps> {
+        val out = ArrayList<HourlySteps>()
+        var chunkStart = from
+        while (chunkStart.isBefore(to)) {
+            val chunkEnd = minOf(chunkStart.plus(Duration.ofDays(30)), to)
+            try {
+                client.aggregateGroupByDuration(
+                    AggregateGroupByDurationRequest(
+                        metrics = setOf(StepsRecord.COUNT_TOTAL),
+                        timeRangeFilter = TimeRangeFilter.between(chunkStart, chunkEnd),
+                        timeRangeSlicer = Duration.ofHours(1),
+                    ),
+                ).forEach { g -> out += HourlySteps(g.startTime, g.result[StepsRecord.COUNT_TOTAL] ?: 0L) }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Stündliche Schritte: ${t.message}")
+            }
+            chunkStart = chunkEnd
+        }
+        return out
+    }
+
+    private class SessionAgg(val distance: Double?, val kcal: Double?, val steps: Long?, val power: Double?)
+
+    private suspend fun sessionAggregates(start: Instant, end: Instant, type: SportType): SessionAgg {
         val range = TimeRangeFilter.between(start, end)
         val distance = if (type in DISTANCE_SPORTS) {
             try {
@@ -215,7 +270,25 @@ class HealthConnectRepository(private val context: Context) {
         } catch (t: Throwable) {
             null
         }
-        return distance?.takeIf { it > 0 } to kcal
+        val steps = if (type == SportType.RUNNING || type == SportType.WALKING || type == SportType.HIKING) {
+            try {
+                client.aggregate(AggregateRequest(metrics = setOf(StepsRecord.COUNT_TOTAL), timeRangeFilter = range))[StepsRecord.COUNT_TOTAL]
+            } catch (t: Throwable) {
+                null
+            }
+        } else {
+            null
+        }
+        val power = if (type == SportType.CYCLING) {
+            try {
+                client.aggregate(AggregateRequest(metrics = setOf(PowerRecord.POWER_AVG), timeRangeFilter = range))[PowerRecord.POWER_AVG]?.inWatts
+            } catch (t: Throwable) {
+                null
+            }
+        } else {
+            null
+        }
+        return SessionAgg(distance?.takeIf { it > 0 }, kcal, steps?.takeIf { it > 0 }, power?.takeIf { it > 0 })
     }
 
     private fun mapStage(stage: Int): SleepStage = when (stage) {

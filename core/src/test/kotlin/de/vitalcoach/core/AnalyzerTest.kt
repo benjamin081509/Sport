@@ -18,7 +18,7 @@ class AnalyzerTest {
         val data = DemoData.generate(zone, now)
         val r = Analyzer.analyze(data, DemoData.profile, LocalDate.of(2026, 11, 4))
         val t = r.todayMetrics!!
-        assertTrue(r.days.size in 90..91)
+        assertTrue("Tage: ${r.days.size}", r.days.size in 365..366)
         assertNotNull(t.restingHr)
         assertNotNull(t.hrv)
         assertNotNull(t.sleep)

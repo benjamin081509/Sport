@@ -13,6 +13,8 @@ class CoachTest {
     private fun all(r: AnalysisResult) = listOf(
         Coach.day(r), Coach.recovery(r), Coach.readiness(r), Coach.sleep(r), Coach.training(r),
         Coach.fitness(r), Coach.restingHr(r), Coach.hrv(r), Coach.activity(r), Coach.vitals(r), Coach.body(r),
+        Coach.regeneration(r), Coach.stress(r), Coach.heart(r), Coach.heartHealth(r), Coach.performance(r),
+        Coach.dailyActivity(r), Coach.forecast(r), Coach.baselines(r),
     )
 
     @Test

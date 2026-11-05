@@ -161,7 +161,7 @@ private fun HrvCard(r: AnalysisResult, vm: MainViewModel) {
 }
 
 @Composable
-private fun ZonesCard(r: AnalysisResult) {
+fun ZonesCard(r: AnalysisResult) {
     val f = r.fitness
     SectionCard(title = "Deine Herzfrequenzzonen") {
         Text(

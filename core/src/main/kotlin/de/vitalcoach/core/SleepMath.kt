@@ -163,4 +163,55 @@ object SleepMath {
         val total = if (wsum > 0) comps.sumOf { it.score * it.weight } / wsum else 0.0
         return night.copy(score = total.roundToInt().coerceIn(0, 100), components = comps)
     }
+
+    /**
+     * Sleep Regularity Index (Phillips et al. 2017, Sci Rep): Wahrscheinlichkeit, 24 Stunden später im selben
+     * Zustand (wach/schlafend) zu sein, skaliert auf −100…100. Berechnet in 5-Minuten-Epochen über [days] Tage.
+     * Nur Tage mit aufgezeichnetem Schlaf werden verglichen.
+     */
+    fun sri(sessions: List<SleepSession>, endDate: java.time.LocalDate, zone: ZoneId, days: Int = 14): Double? {
+        val epochSec = 300L
+        val perDay = (86400 / epochSec).toInt()
+        val startT = endDate.minusDays(days.toLong()).atTime(12, 0).atZone(zone).toInstant()
+        val total = days * perDay
+        val asleep = BooleanArray(total)
+        val dayHasSleep = BooleanArray(days)
+        fun mark(a: Instant, b: Instant) {
+            val i0 = (Duration.between(startT, a).seconds / epochSec).toInt().coerceIn(0, total)
+            val i1 = (Duration.between(startT, b).seconds / epochSec).toInt().coerceIn(0, total)
+            for (i in i0 until i1) asleep[i] = true
+        }
+        for (ses in sessions) {
+            if (!ses.end.isAfter(startT)) continue
+            val sleepSegs = ses.segments.filter { it.stage in setOf(SleepStage.LIGHT, SleepStage.DEEP, SleepStage.REM, SleepStage.SLEEPING) }
+            if (sleepSegs.isNotEmpty()) sleepSegs.forEach { mark(it.start, it.end) } else mark(ses.start, ses.end)
+            val mid = ses.start.plusSeconds(Duration.between(ses.start, ses.end).seconds / 2)
+            val d = (Duration.between(startT, mid).seconds / 86400).toInt()
+            if (d in 0 until days && Duration.between(ses.start, ses.end).toMinutes() >= 120) dayHasSleep[d] = true
+        }
+        var matches = 0L
+        var count = 0L
+        for (d in 0 until days - 1) {
+            if (!dayHasSleep[d] || !dayHasSleep[d + 1]) continue
+            for (e in 0 until perDay) {
+                val i = d * perDay + e
+                if (asleep[i] == asleep[i + perDay]) matches++
+                count++
+            }
+        }
+        if (count < 5L * perDay) return null
+        return (-100.0 + 200.0 * matches / count).clamp(-100.0, 100.0)
+    }
+
+    /**
+     * Persönlicher Schlafbedarf: mittlere Schlafdauer in den Nächten, nach denen dein Nervensystem
+     * besonders gut erholt war (HRV/Ruhepuls mindestens 0,5 Standardabweichungen besser als normal).
+     */
+    fun personalNeed(pairs: List<Pair<Double, Double>>): Pair<Double, Int>? {
+        if (pairs.size < 21) return null
+        val good = pairs.filter { it.second >= 0.5 }.map { it.first / 60.0 }
+        if (good.size < 5) return null
+        val med = Stats.median(good) ?: return null
+        return med.clamp(6.5, 9.5) to good.size
+    }
 }

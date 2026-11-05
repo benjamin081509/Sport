@@ -12,10 +12,26 @@ enum class MetricKey(val title: String) {
     ACTIVITY("Alltagsaktivität"),
     VITALS("Sauerstoff & Atmung"),
     BODY("Körperzusammensetzung"),
+    REGENERATION("Regeneration & Ermüdung"),
+    HEART_HEALTH("Herzgesundheit"),
+    HEART("Herz & Kreislauf"),
+    STRESS("Stress & Nervensystem"),
+    PERFORMANCE("Fitness & Leistung"),
+    FORECAST("Bereitschafts-Prognose"),
+    BASELINES("Persönliche Normalwerte"),
+    CORRELATIONS("Zusammenhänge"),
+    TRENDS("Langzeit-Trends"),
 }
 
 /** Erklärungen „Was ist das?“ und „So wird es berechnet“ – in einfacher Sprache mit Quellen. */
 object Explain {
+
+    /** Herkunft des Hauptwerts einer Kennzahl. */
+    fun provenance(key: MetricKey): Provenance = when (key) {
+        MetricKey.ACTIVITY, MetricKey.VITALS, MetricKey.BODY -> Provenance.MEASURED
+        MetricKey.VO2MAX, MetricKey.REGENERATION, MetricKey.STRESS, MetricKey.FORECAST, MetricKey.PERFORMANCE -> Provenance.ESTIMATED
+        else -> Provenance.CALCULATED
+    }
 
     fun what(key: MetricKey): String = when (key) {
         MetricKey.RECOVERY ->
@@ -50,6 +66,32 @@ object Explain {
         MetricKey.BODY ->
             "Gewicht, BMI und Körperfettanteil beschreiben deine Körperzusammensetzung. Die Galaxy Watch misst den Körperfettanteil " +
                 "per Bioimpedanz (BIA)."
+        MetricKey.REGENERATION ->
+            "Die Regeneration zeigt, wie weit sich dein Körper von deinen letzten Trainings erholt hat, wie viel Ermüdung sich angesammelt hat " +
+                "und ob Belastung und Erholung im Gleichgewicht sind. Der Überlastungsindikator fasst mehrere Warnsignale zusammen."
+        MetricKey.HEART_HEALTH ->
+            "Die Herzgesundheit fasst die wichtigsten Faktoren für ein gesundes Herz-Kreislauf-System zusammen: Bewegung, Schlaf, Gewicht, " +
+                "Blutdruck, Nikotin sowie Ruhepuls und Ausdauerfitness."
+        MetricKey.HEART ->
+            "Hier siehst du, wie dein Herz im Alltag, nachts und im Training arbeitet: Durchschnittspuls, nächtliche Pulsabsenkung, " +
+                "HRV- und Ruhepuls-Trends, Stabilität und wie schnell dein Puls nach Belastung wieder sinkt (Herzfrequenzerholung)."
+        MetricKey.STRESS ->
+            "Stress aktiviert den Sympathikus – dein Puls steigt, auch wenn du dich nicht bewegst. Der Stress-Index schätzt, wie stark " +
+                "dein Nervensystem im Alltag angespannt ist."
+        MetricKey.PERFORMANCE ->
+            "Fitness & Leistung zeigt deine langfristige Entwicklung: VO2max, aerobe Effizienz (Tempo bei gleichem Puls), Laktatschwelle, " +
+                "hochintensive Belastung und Radleistung."
+        MetricKey.FORECAST ->
+            "Die Prognose schätzt, wie deine Trainingsbereitschaft in den nächsten 1–3 Tagen aussieht – je nachdem, ob du dich ausruhst, " +
+                "locker, normal oder hart trainierst."
+        MetricKey.BASELINES ->
+            "Jeder Mensch hat eigene Normalwerte. Diese Übersicht zeigt für alle wichtigen Messwerte deinen persönlichen Normalbereich und " +
+                "ob der aktuelle Wert davon abweicht."
+        MetricKey.CORRELATIONS ->
+            "Die Zusammenhangs-Analyse sucht in DEINEN Daten nach Mustern, z. B. ob du nach viel Schlaf eine höhere HRV hast oder nach " +
+                "späten Trainings schlechter schläfst. Zusammenhang bedeutet nicht automatisch Ursache."
+        MetricKey.TRENDS ->
+            "Langzeit-Trends zeigen, wie sich deine Werte über Monate entwickeln – das sagt mehr über deine Gesundheit aus als einzelne Tage."
     }
 
     fun how(key: MetricKey): String = when (key) {
@@ -91,5 +133,41 @@ object Explain {
         MetricKey.BODY ->
             "BMI = Gewicht / Größe² (WHO-Kategorien). Körperfett-Kategorien nach American Council on Exercise. Neueste Messung aus Health Connect " +
                 "bzw. deine Angaben im Profil."
+        MetricKey.REGENERATION ->
+            "Erholungsdauer je Training (Schätzung) = 18 h × (TRIMP ÷ dein Fitness-Niveau)^1,1, +12 h bei ≥ 25 % Zeit in Zone 4–5, Krafttraining " +
+                "mind. 30 h. Regenerationsindex = 60 % Zeitfortschritt + 40 % autonome Erholung (HRV/Ruhepuls relativ zu deinem Normalwert). " +
+                "Ermüdungsindex = 50 × Ermüdung (ATL) ÷ Fitness (CTL). Belastungs-/Erholungsverhältnis = (ATL ÷ CTL) ÷ (Ø Erholung 7 Tage ÷ 65). " +
+                "Überlastungsindikator: Anzahl gleichzeitiger Warnsignale (ACWR > 1,3, Monotonie > 2, HRV-Trend, Ruhepuls-Trend, niedrige Erholung, " +
+                "Schlafdefizit, hohe Ermüdung, sinkende Bereitschaft)."
+        MetricKey.HEART_HEALTH ->
+            "Punkteskalen der American Heart Association „Life's Essential 8“ (Lloyd-Jones et al. 2022): Bewegung (≥ 150 min/Woche = 100), Schlaf " +
+                "(7–9 h = 100), BMI (< 25 = 100), Blutdruck (< 120/80 = 100), Nikotin (nie = 100). Ergänzt um Ruhepuls (< 60 = 100; Zhang et al. 2016) " +
+                "und VO2max-Kategorie (Kodama et al. 2009). Ergebnis = Mittelwert der erfassten Bereiche. Ernährung, Blutfette und Blutzucker " +
+                "können nicht gemessen werden; die Samsung-Gefäßbelastung ist nicht abrufbar."
+        MetricKey.HEART ->
+            "Ø Puls: zeitgewichtet über 10-Minuten-Fenster. Nächtliche Absenkung = (Ø Puls am Vorabend − Ø Puls im Schlaf) ÷ Ø Puls am Vorabend " +
+                "(abgeschwächt < 10 %, Ben-Dov et al. 2007). Herzfrequenzerholung = Pulsabfall in 60 s nach Belastungsende bzw. nach der stärksten " +
+                "Belastungsspitze (Cole et al. 1999). Stabilität = Standardabweichung des Ruhepulses über 14 Tage; HRV-Schwankung = Variationskoeffizient " +
+                "der logarithmierten HRV (Plews et al. 2012)."
+        MetricKey.STRESS ->
+            "Schätzung: Für jede Pulsmessung außerhalb von Trainings in Stunden mit < 100 Schritten wird die Erhöhung über deinem Ruhepuls berechnet " +
+                "(in % der Herzfrequenzreserve). 5 % = 0 Punkte, 30 % = 100 Punkte. Tageswert = Mittelwert. Der Samsung-Stresswert (HRV-basiert) ist " +
+                "über Health Connect nicht verfügbar – dieser Wert ist daher nicht identisch damit."
+        MetricKey.PERFORMANCE ->
+            "Aerobe Effizienz (Efficiency Factor) = Geschwindigkeit ÷ Ø Puls bei lockeren Läufen (50–85 % HFR); Vergleich der letzten 4 Wochen " +
+                "mit den 4 Wochen davor. Laktatschwelle (Schätzung, Friel-Methode) = höchster 20-Minuten-Pulsschnitt, wenn ≥ 85 % HFmax. Anaerobe " +
+                "Leistung ist ohne Leistungs-/Laktatdaten nicht messbar – angezeigt wird stattdessen die Zeit in Zone 4–5."
+        MetricKey.FORECAST ->
+            "Erholung(morgen) − Ø = φ × (Erholung(heute) − Ø) + β × relative Belastung; φ und β werden ab 21 Tagen per Regression aus deinen Daten " +
+                "geschätzt. Fitness, Ermüdung und ACWR werden mit dem Banister-Modell fortgeschrieben. Bereich = 80-%-Prognoseintervall."
+        MetricKey.BASELINES ->
+            "Normalbereich = Mittelwert ± 1 Standardabweichung der letzten 30 Tage (ohne heute). z-Wert = Abweichung in Standardabweichungen: " +
+                "|z| < 1 normal, 1–2 leicht erhöht/erniedrigt, ≥ 2 ungewöhnlich."
+        MetricKey.CORRELATIONS ->
+            "Pearson-Korrelation r zwischen zwei Messgrößen (z. B. Belastung heute → HRV in der Nacht danach), Signifikanz über Fisher-z-Test. " +
+                "Als Zusammenhang gilt |r| ≥ 0,2 bei p < 0,1. Zusätzlich Vergleich des oberen und unteren Drittels der Tage."
+        MetricKey.TRENDS ->
+            "Wochenmittelwerte über bis zu 52 Wochen, Vergleich der letzten 30 mit den 30 Tagen davor, der letzten 90 mit den 90 davor und mit dem " +
+                "Wert vor einem Jahr. Ältere Tageswerte speichert die App lokal auf deinem Handy."
     }
 }

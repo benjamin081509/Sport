@@ -1,7 +1,11 @@
 package de.vitalcoach.app
 
 import android.content.Context
+import de.vitalcoach.core.DailySnapshot
+import de.vitalcoach.core.Nicotine
 import de.vitalcoach.core.Sex
+import de.vitalcoach.core.SnapshotCodec
+import java.io.File
 import de.vitalcoach.core.UserProfile
 import de.vitalcoach.core.ai.ClaudeModel
 
@@ -18,6 +22,9 @@ class SettingsStore(context: Context) {
             maxHrOverride = prefs.getInt("maxHr", 0).takeIf { it > 0 },
             sleepGoalHours = prefs.getFloat("sleepGoal", 8f).toDouble(),
             stepGoal = prefs.getInt("stepGoal", 8000),
+            nicotine = prefs.getString("nicotine", null)?.let { runCatching { Nicotine.valueOf(it) }.getOrNull() },
+            bpSystolic = prefs.getInt("bpSys", 0).takeIf { it > 0 },
+            bpDiastolic = prefs.getInt("bpDia", 0).takeIf { it > 0 },
         )
         set(p) {
             prefs.edit()
@@ -28,6 +35,9 @@ class SettingsStore(context: Context) {
                 .putInt("maxHr", p.maxHrOverride ?: 0)
                 .putFloat("sleepGoal", p.sleepGoalHours.toFloat())
                 .putInt("stepGoal", p.stepGoal)
+                .putString("nicotine", p.nicotine?.name)
+                .putInt("bpSys", p.bpSystolic ?: 0)
+                .putInt("bpDia", p.bpDiastolic ?: 0)
                 .apply()
         }
 
@@ -58,4 +68,25 @@ class SettingsStore(context: Context) {
     var lastAiQuestion: String?
         get() = prefs.getString("aiQuestion", null)
         set(v) = prefs.edit().putString("aiQuestion", v).apply()
+}
+
+/** Lokaler Verlaufsspeicher für Tageswerte (für Langzeit-Trends). */
+class HistoryStore(context: Context) {
+    private val file = File(context.filesDir, "history.tsv")
+
+    fun load(): List<DailySnapshot> = try {
+        if (file.exists()) SnapshotCodec.decode(file.readText()) else emptyList()
+    } catch (t: Throwable) {
+        emptyList()
+    }
+
+    fun save(list: List<DailySnapshot>) {
+        try {
+            val tmp = File(file.parentFile, "history.tmp")
+            tmp.writeText(SnapshotCodec.encode(list))
+            tmp.renameTo(file)
+        } catch (t: Throwable) {
+            // Verlauf ist optional – Fehler beim Speichern ignorieren
+        }
+    }
 }

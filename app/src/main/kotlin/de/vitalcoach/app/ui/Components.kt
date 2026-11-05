@@ -170,6 +170,7 @@ fun MetricTile(
     tone: Tone,
     icon: ImageVector,
     modifier: Modifier = Modifier,
+    provenance: de.vitalcoach.core.Provenance? = null,
     onClick: (() -> Unit)? = null,
 ) {
     Card(
@@ -195,6 +196,10 @@ fun MetricTile(
             if (sub != null) {
                 Spacer(Modifier.height(2.dp))
                 Text(sub, style = MaterialTheme.typography.bodySmall, color = tone.color(), maxLines = 2)
+            }
+            if (provenance != null) {
+                Spacer(Modifier.height(6.dp))
+                ProvenanceChip(provenance)
             }
         }
     }
