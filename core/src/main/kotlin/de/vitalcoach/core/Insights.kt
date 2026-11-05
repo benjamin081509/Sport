@@ -147,13 +147,14 @@ object Insights {
             "${Fmt.signed(yHigh - yLow, yDecimals)}${if (yUnit.isNotEmpty()) " $yUnit" else ""}"
         }
         val significant = p < 0.1 && abs(r) >= 0.2
+        val pts = pairs.takeLast(120)
         val text = if (significant) {
             "Bei dir besteht ein ${strength(r)} Zusammenhang (r = ${Fmt.num(r, 2)}, $n Tage): An Tagen mit hohem Wert für „$xLabel“ " +
                 "war „$yLabel“ im Schnitt $diffText gegenüber Tagen mit niedrigem Wert."
         } else {
             "In deinen Daten ist bisher kein klarer Zusammenhang erkennbar (r = ${Fmt.num(r, 2)}, $n Tage). Unterschied hohe vs. niedrige Tage: $diffText."
         }
-        return CorrelationInsight(title, text, r, n, p, strength(r), significant)
+        return CorrelationInsight(title, text, r, n, p, strength(r), significant, pts, xLabel, yLabel)
     }
 
     fun correlations(r: AnalysisResult): List<CorrelationInsight> {
@@ -242,9 +243,9 @@ object Insights {
         val headline = when {
             t.illnessFlag -> "Dein Körper zeigt Warnzeichen – heute lieber Ruhe."
             rec == null -> "Noch nicht genug Daten für eine Tagesbewertung."
-            ready != null && ready.value >= 67 -> "Gut erholt – heute ist ein guter Tag für eine fordernde Einheit."
-            ready != null && ready.value >= 50 -> "Solide erholt – moderates Training passt heute."
-            ready != null && ready.value >= 34 -> "Nur teilweise erholt – heute eher locker."
+            ready != null && ready.value >= 75 -> "Gut erholt – heute ist ein guter Tag für eine fordernde Einheit."
+            ready != null && ready.value >= 60 -> "Solide erholt – moderates Training passt heute."
+            ready != null && ready.value >= 45 -> "Nur teilweise erholt – heute eher locker."
             else -> "Wenig erholt – gönn deinem Körper heute Ruhe."
         }
         val changes = r.baselines.filter { it.z != null && abs(it.z) >= 1.0 && it.current != null && it.mean30 != null }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -70,36 +71,40 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
         val start = days30.firstOrNull()?.let { Fmt.dayShort(it.date) }
         when (key) {
             MetricKey.RECOVERY -> {
-                item { ScoreHero(r.todayMetrics?.recovery, "Erholung heute") }
+                item { ScoreHero(r.todayMetrics?.recovery, "Erholung") }
                 item {
-                    SectionCard(title = "Verlauf (30 Tage)") {
-                        LineChart(listOf(Series(days30.map { it.recovery?.value?.toDouble() }, Palette.Good, "Erholung")), startLabel = start, endLabel = "heute")
+                    SectionCard(title = "30 Tage") {
+                        LineChart(listOf(Series(days30.map { it.recovery?.value?.toDouble() }, Palette.Good, "Erholung")), band = 60.0 to 75.0, startLabel = start, endLabel = "heute")
                     }
                 }
-                item { CoachCard(Coach.recovery(r)) }
+                item {
+                    SectionCard(title = "12 Wochen") { CalendarHeatmap(r.days.takeLast(84).map { it.date to it.recovery?.value }) }
+                }
+                item { CoachCard(Coach.recovery(r), title = "Coach · Erholung") }
             }
             MetricKey.READINESS -> {
-                item { ScoreHero(r.todayMetrics?.readiness, "Trainingsbereitschaft heute") }
+                item { ScoreHero(r.todayMetrics?.readiness, "Bereitschaft") }
                 item {
-                    SectionCard(title = "Verlauf (30 Tage)") {
-                        LineChart(listOf(Series(days30.map { it.readiness?.value?.toDouble() }, Palette.Blue, "Bereitschaft")), startLabel = start, endLabel = "heute")
+                    SectionCard(title = "30 Tage") {
+                        LineChart(listOf(Series(days30.map { it.readiness?.value?.toDouble() }, Palette.Blue, "Bereitschaft")), band = 60.0 to 75.0, startLabel = start, endLabel = "heute")
                     }
                 }
-                item { CoachCard(Coach.readiness(r)) }
+                item { ForecastCard(r, null) }
+                item { CoachCard(Coach.readiness(r), title = "Coach · Bereitschaft") }
             }
             MetricKey.SLEEP -> {
                 val n = r.sleep.lastNight
                 if (n != null) {
                     item {
-                        SectionCard(title = "Letzte Nacht") {
+                        SectionCard {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                ScoreRing(n.score, "Schlaf-Score", n.scoreTone, size = 88.dp)
+                                ScoreRing(n.score, "", n.scoreTone, size = 100.dp, caption = "Score")
                                 Spacer(Modifier.width(16.dp))
-                                BigValue(Fmt.duration(n.asleepMin), "", "${Fmt.clock(n.bedtimeMin)}–${Fmt.clock(n.wakeMin)} Uhr")
+                                BigValue(Fmt.duration(n.asleepMin), "", "${Fmt.clock(n.bedtimeMin)} → ${Fmt.clock(n.wakeMin)}", durationTone(n.asleepMin).color())
                             }
-                            if (n.hasStages) {
+                            if (n.hasStages && n.stages.isNotEmpty()) {
                                 Spacer(Modifier.height(12.dp))
-                                StagesBlock(n)
+                                Hypnogram(n.stages, r.zone, height = 120.dp)
                             }
                             if (n.components.isNotEmpty()) {
                                 Spacer(Modifier.height(12.dp))
@@ -109,85 +114,93 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
                     }
                 }
                 item {
-                    SectionCard(title = "Schlafdauer in Stunden (30 Tage)") {
+                    SectionCard(title = "Schlafdauer · 30 Tage") {
                         LineChart(
                             listOf(Series(days30.map { it.sleep?.asleepMin?.div(60.0) }, Palette.Purple, "Schlaf")),
-                            band = r.sleep.goalHours - 0.5 to r.sleep.goalHours + 0.5,
+                            band = 7.0 to r.sleep.goalHours.coerceAtLeast(7.5),
                             startLabel = start, endLabel = "heute", decimals = 1,
                         )
                     }
                 }
-                item { CoachCard(Coach.sleep(r)) }
+                item { CoachCard(Coach.sleep(r), title = "Coach · Schlaf") }
             }
             MetricKey.RESTING_HR -> {
                 val b = r.todayMetrics?.rhrBaseline
                 item {
-                    SectionCard(title = "Ruhepuls (30 Tage)") {
-                        BigValue(r.todayMetrics?.restingHr?.let { Fmt.int(it) } ?: "–", "bpm", "heute")
+                    SectionCard {
+                        StatRow(
+                            listOf(
+                                Triple(r.todayMetrics?.restingHr?.let { Fmt.int(it) } ?: "–", "heute", null),
+                                Triple(b?.let { Fmt.num(it.mean, 1) } ?: "–", "normal", null),
+                                Triple(r.fitness.restingHrTrend30d?.let { Fmt.signed(it, 1) } ?: "–", "Trend /Monat", r.fitness.restingHrTrend30d?.let { if (it <= 0) Palette.Good else Palette.Warn }),
+                            ),
+                        )
                         Spacer(Modifier.height(10.dp))
                         LineChart(
-                            listOf(Series(days30.map { it.restingHr }, Palette.Bad, "Ruhepuls")),
+                            listOf(Series(r.days.takeLast(60).map { it.restingHr }, Palette.Bad, "Ruhepuls")),
                             band = b?.let { (it.mean - it.sd) to (it.mean + it.sd) },
-                            startLabel = start, endLabel = "heute",
+                            startLabel = r.days.takeLast(60).firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute",
                         )
                     }
                 }
-                item { CoachCard(Coach.restingHr(r)) }
+                item { CoachCard(Coach.restingHr(r), title = "Coach · Ruhepuls") }
             }
             MetricKey.HRV -> {
                 val lo = r.fitness.hrvNormalLow
                 val hi = r.fitness.hrvNormalHigh
                 item {
-                    SectionCard(title = "HRV (30 Tage)") {
-                        BigValue(r.todayMetrics?.hrv?.let { Fmt.int(it) } ?: "–", "ms", "letzte Nacht")
+                    SectionCard {
+                        StatRow(
+                            listOf(
+                                Triple(r.todayMetrics?.hrv?.let { Fmt.int(it) } ?: "–", "letzte Nacht", null),
+                                Triple(if (lo != null && hi != null) "${Fmt.int(lo)}–${Fmt.int(hi)}" else "–", "normal", null),
+                                Triple(r.heart.hrvCv7?.let { Fmt.num(it, 1) + " %" } ?: "–", "Schwankung", null),
+                            ),
+                        )
                         Spacer(Modifier.height(10.dp))
                         LineChart(
-                            listOf(Series(days30.map { it.hrv }, Palette.Purple, "HRV")),
+                            listOf(Series(r.days.takeLast(60).map { it.hrv }, Palette.Purple, "HRV")),
                             band = if (lo != null && hi != null) lo to hi else null,
-                            startLabel = start, endLabel = "heute",
+                            startLabel = r.days.takeLast(60).firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute",
                         )
                     }
                 }
-                item { CoachCard(Coach.hrv(r)) }
+                item { CoachCard(Coach.hrv(r), title = "Coach · HRV") }
             }
             MetricKey.LOAD -> {
-                val d60 = r.days.takeLast(60)
+                val d90 = r.days.takeLast(90)
                 item {
-                    SectionCard(title = "Form (TSB, 60 Tage)") {
+                    SectionCard(title = "Fitness & Ermüdung · 90 Tage") {
                         LineChart(
-                            listOf(Series(d60.map { it.tsb }, Palette.Teal, "Form")),
+                            listOf(Series(d90.map { it.ctl }, Palette.Blue, "Fitness"), Series(d90.map { it.atl }, Palette.Orange, "Ermüdung")),
+                            height = 180.dp,
+                            startLabel = d90.firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute",
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Legend(listOf("Fitness" to Palette.Blue, "Ermüdung" to Palette.Orange))
+                    }
+                }
+                item {
+                    SectionCard(title = "Form · 90 Tage") {
+                        LineChart(
+                            listOf(Series(d90.map { it.tsb }, Palette.Teal, "Form")),
                             band = -10.0 to 10.0,
-                            startLabel = d60.firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute",
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "Grün = ausgeglichene Form (−10 bis +10). Deutlich negativ = ermüdet (normal in Aufbauphasen), deutlich positiv = frisch (ideal vor Wettkämpfen).",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            startLabel = d90.firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute",
                         )
                     }
                 }
-                item {
-                    SectionCard(title = "Fitness & Ermüdung (60 Tage)") {
-                        LineChart(
-                            listOf(Series(d60.map { it.ctl }, Palette.Blue, "Fitness"), Series(d60.map { it.atl }, Palette.Orange, "Ermüdung")),
-                            startLabel = d60.firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute",
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Legend(listOf("Fitness (CTL)" to Palette.Blue, "Ermüdung (ATL)" to Palette.Orange))
-                    }
-                }
-                item { CoachCard(Coach.training(r)) }
+                item { CoachCard(Coach.training(r), title = "Coach · Belastung") }
             }
             MetricKey.VO2MAX -> {
                 item { Vo2Card(r, null) }
-                item { CoachCard(Coach.fitness(r)) }
+                item { ZonesCard(r) }
+                item { CoachCard(Coach.fitness(r), title = "Coach · Fitness") }
             }
             MetricKey.ACTIVITY -> {
                 activityItems(r)
                 val d14 = r.days.takeLast(14)
                 item {
-                    SectionCard(title = "Aktive Kalorien (14 Tage)") {
+                    SectionCard(title = "Aktive Kalorien · 14 Tage") {
                         BarChart(
                             values = d14.map { it.activeKcal },
                             colors = d14.map { Palette.Orange },
@@ -198,12 +211,12 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
             }
             MetricKey.VITALS -> {
                 item {
-                    SectionCard(title = "Sauerstoffsättigung (30 Tage)") {
+                    SectionCard(title = "Sauerstoff · 30 Tage") {
                         LineChart(listOf(Series(days30.map { it.spo2 }, Palette.Blue, "SpO2")), band = 95.0 to 100.0, startLabel = start, endLabel = "heute", decimals = 1)
                     }
                 }
                 item {
-                    SectionCard(title = "Atemfrequenz (30 Tage)") {
+                    SectionCard(title = "Atemfrequenz · 30 Tage") {
                         val rb = r.todayMetrics?.respBaseline
                         LineChart(
                             listOf(Series(days30.map { it.respRate }, Palette.Teal, "Atmung")),
@@ -212,10 +225,11 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
                         )
                     }
                 }
-                item { CoachCard(Coach.vitals(r)) }
+                item { CoachCard(Coach.vitals(r), title = "Coach · Vitalwerte") }
             }
             MetricKey.BODY -> {
-                item { CoachCard(Coach.body(r)) }
+                item { BodyCompCard(r) }
+                item { CoachCard(Coach.body(r), title = "Coach · Körper") }
             }
             MetricKey.REGENERATION -> recoveryItems(r, vm)
             MetricKey.HEART_HEALTH -> heartHealthItems(r)
@@ -228,18 +242,12 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
             MetricKey.TRENDS -> trendItems(r)
         }
         item {
-            SectionCard(title = "Was ist das?", icon = Icons.Filled.Info) {
-                Text(Explain.what(key), style = MaterialTheme.typography.bodyMedium)
+            InfoCard("Was ist das & wie wird es berechnet?", Explain.what(key) + "\n\n" + Explain.how(key)) {
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Herkunft des Werts: ", style = MaterialTheme.typography.bodySmall)
+                    Text("Herkunft: ", style = MaterialTheme.typography.bodySmall)
                     ProvenanceChip(Explain.provenance(key))
                 }
-            }
-        }
-        item {
-            SectionCard(title = "So wird es berechnet", icon = Icons.Filled.Science) {
-                Text(Explain.how(key), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -252,13 +260,38 @@ private fun ScoreHero(score: Score?, label: String) {
             Text("Noch keine Daten – nach der ersten Nacht mit Uhr erscheint hier dein Wert.", style = MaterialTheme.typography.bodyMedium)
             return@SectionCard
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ScoreRing(score.value, label, score.tone, size = 110.dp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            SemiGauge(score.value / 100f, ToneScale, "${score.value}", label, width = 220.dp)
         }
-        Spacer(Modifier.height(14.dp))
-        Text("Bausteine", style = MaterialTheme.typography.titleSmall)
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(12.dp))
         ScoreBreakdown(score)
+    }
+}
+
+@Composable
+private fun BodyCompCard(r: AnalysisResult) {
+    val f = r.fitness
+    SectionCard(title = "Körperwerte") {
+        StatRow(
+            listOf(
+                Triple(f.weightKg?.let { Fmt.num(it, 1) } ?: "–", "kg", null),
+                Triple(f.bmi?.let { Fmt.num(it, 1) } ?: "–", "BMI", f.bmi?.let { if (it < 25) Palette.Good else if (it < 30) Palette.Warn else Palette.Bad }),
+                Triple(f.bodyFatPct?.let { Fmt.num(it, 1) + " %" } ?: "–", "Körperfett", null),
+            ),
+        )
+        val w = r.days.takeLast(180).map { it.weight }
+        if (w.count { it != null } >= 3) {
+            Spacer(Modifier.height(10.dp))
+            LineChart(listOf(Series(w, Palette.Blue, "Gewicht")), height = 120.dp, decimals = 1, startLabel = r.days.takeLast(180).firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute")
+        }
+        val bmi = f.bmi
+        if (bmi != null) {
+            Spacer(Modifier.height(10.dp))
+            ScaleBar(
+                listOf("< 18,5" to Palette.Light, "18,5–25" to Palette.Good, "25–30" to Palette.Warn, "≥ 30" to Palette.Bad),
+                position = ((bmi - 15) / 20).toFloat(),
+            )
+        }
     }
 }
 

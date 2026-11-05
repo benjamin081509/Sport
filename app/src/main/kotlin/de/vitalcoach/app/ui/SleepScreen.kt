@@ -3,194 +3,248 @@ package de.vitalcoach.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.DonutLarge
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import de.vitalcoach.app.UiState
 import de.vitalcoach.core.AnalysisResult
 import de.vitalcoach.core.Coach
 import de.vitalcoach.core.Fmt
+import de.vitalcoach.core.Score
 import de.vitalcoach.core.SleepNight
+import de.vitalcoach.core.Tone
 
 @Composable
 fun SleepScreen(state: UiState, padding: PaddingValues) {
     val r = state.result
     LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item { Text("Schlaf", style = MaterialTheme.typography.headlineMedium) }
         if (r == null) {
             item { Text("Noch keine Daten vorhanden.") }
             return@LazyColumn
         }
-        item { LastNightCard(r) }
+        item { LastNightHero(r) }
+        item { HypnogramCard(r) }
+        item { PhasesCard(r) }
         item { SleepNeedCard(r) }
-        item { CoachCard(Coach.sleep(r), title = "Bewertung deines Schlafs") }
+        item { NightsCard(r) }
+        item { SleepWindowCard(r) }
+        item { ConsistencyCard(r) }
         item { NightRecoveryCard(r) }
-        item { SleepQualityCard(r) }
-        item { SleepHistoryCard(r) }
-        item { SleepStatsCard(r) }
+        item { CoachCard(Coach.sleep(r), title = "Coach · Schlaf") }
     }
 }
 
 @Composable
-private fun LastNightCard(r: AnalysisResult) {
+private fun LastNightHero(r: AnalysisResult) {
     val n = r.sleep.lastNight
-    SectionCard(title = "Letzte Nacht", icon = Icons.Filled.Bedtime) {
+    SectionCard {
         if (n == null) {
-            Text("Für die letzte Nacht liegen keine Schlafdaten vor. Trage die Uhr beim Schlafen und öffne danach Samsung Health, damit synchronisiert wird.")
+            Text("Keine Schlafdaten für letzte Nacht. Trage die Uhr nachts und öffne danach Samsung Health.", style = MaterialTheme.typography.bodyMedium)
             return@SectionCard
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ScoreRing(n.score, "Schlaf-Score", n.scoreTone, size = 96.dp)
+            ScoreRing(n.score, "", n.scoreTone, size = 110.dp, caption = "Score")
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                BigValue(Fmt.duration(n.asleepMin), "", "geschlafen")
-                Spacer(Modifier.height(4.dp))
-                Text("${Fmt.clock(n.bedtimeMin)} – ${Fmt.clock(n.wakeMin)} Uhr", style = MaterialTheme.typography.bodyMedium)
-                val eff = n.efficiency
-                if (eff != null) Text("Effizienz ${Fmt.pct(eff)}", style = MaterialTheme.typography.bodyMedium)
-                if (n.napMin > 0) Text("+ ${Fmt.duration(n.napMin)} Nickerchen", style = MaterialTheme.typography.bodySmall)
+                Text(Fmt.duration(n.asleepMin), style = MaterialTheme.typography.headlineLarge, color = durationTone(n.asleepMin).color())
+                Text("geschlafen · Ziel ${Fmt.hours(r.sleep.goalHours)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(6.dp))
+                Text("${Fmt.clock(n.bedtimeMin)} → ${Fmt.clock(n.wakeMin)}", style = MaterialTheme.typography.titleMedium)
             }
         }
-        if (n.hasStages) {
-            Spacer(Modifier.height(14.dp))
-            StagesBlock(n)
-        }
+        Spacer(Modifier.height(12.dp))
+        val eff = n.efficiency
+        StatRow(
+            listOf(
+                Triple(eff?.let { Fmt.pct(it) } ?: "–", "Effizienz", eff?.let { if (it >= 0.9) Palette.Good else if (it >= 0.85) Palette.Ok else Palette.Warn }),
+                Triple(Fmt.duration(n.inBedMin), "im Bett", null),
+                Triple(Fmt.duration(n.awakeMin), "wach", if (n.awakeMin > 45) Palette.Warn else null),
+            ),
+        )
         if (n.components.isNotEmpty()) {
-            Spacer(Modifier.height(14.dp))
-            Text("So setzt sich der Score zusammen", style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(6.dp))
-            ScoreBreakdown(de.vitalcoach.core.Score(n.score, n.components, de.vitalcoach.core.Confidence.MEDIUM))
+            Spacer(Modifier.height(12.dp))
+            ScoreBreakdown(Score(n.score, n.components, de.vitalcoach.core.Confidence.MEDIUM))
+        }
+    }
+}
+
+fun durationTone(min: Double): Tone = when {
+    min >= 420 -> Tone.GOOD
+    min >= 390 -> Tone.OK
+    min >= 360 -> Tone.WARN
+    else -> Tone.BAD
+}
+
+@Composable
+private fun HypnogramCard(r: AnalysisResult) {
+    val n = r.sleep.lastNight ?: return
+    if (!n.hasStages || n.stages.isEmpty()) return
+    SectionCard(title = "Schlafverlauf", icon = Icons.Filled.Timeline) {
+        Hypnogram(n.stages, r.zone)
+    }
+}
+
+@Composable
+private fun PhasesCard(r: AnalysisResult) {
+    val n = r.sleep.lastNight ?: return
+    if (!n.hasStages) return
+    SectionCard(title = "Schlafphasen", icon = Icons.Filled.DonutLarge) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            DonutChart(
+                listOf(n.deepMin to Palette.Deep, n.lightMin to Palette.Light, n.remMin to Palette.Rem, n.awakeMin to Palette.Awake),
+                size = 130.dp,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(Fmt.duration(n.asleepMin), style = MaterialTheme.typography.titleMedium)
+                    Text("Schlaf", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val asleep = n.asleepMin.coerceAtLeast(1.0)
+                PhaseRow("Tief", n.deepMin, n.deepMin / asleep, Palette.Deep, n.deepMin / asleep >= 0.15)
+                PhaseRow("REM", n.remMin, n.remMin / asleep, Palette.Rem, n.remMin / asleep >= 0.20)
+                PhaseRow("Leicht", n.lightMin, n.lightMin / asleep, Palette.Light, null)
+                PhaseRow("Wach", n.awakeMin, null, Palette.Awake, n.awakeMin <= 30)
+            }
         }
     }
 }
 
 @Composable
-fun StagesBlock(n: SleepNight) {
-    StackedBar(
-        listOf(
-            n.deepMin to Palette.Deep,
-            n.lightMin to Palette.Light,
-            n.remMin to Palette.Rem,
-            n.awakeMin to Palette.Awake,
-        ),
-    )
-    Spacer(Modifier.height(10.dp))
-    val asleep = n.asleepMin.coerceAtLeast(1.0)
-    StageRow("Tiefschlaf", n.deepMin, n.deepMin / asleep, "13–23 %", Palette.Deep)
-    StageRow("Leichtschlaf", n.lightMin, n.lightMin / asleep, "45–55 %", Palette.Light)
-    StageRow("REM-Schlaf", n.remMin, n.remMin / asleep, "20–25 %", Palette.Rem)
-    StageRow("Wach", n.awakeMin, null, "< 10 % der Bettzeit", Palette.Awake)
-}
-
-@Composable
-private fun StageRow(name: String, min: Double, pct: Double?, ref: String, color: Color) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        ToneDotColor(color)
+private fun PhaseRow(name: String, min: Double, pct: Double?, color: Color, ok: Boolean?) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).clip(CircleShape).background(color))
         Spacer(Modifier.width(8.dp))
         Text(name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
         Text(Fmt.duration(min) + (pct?.let { " · ${Fmt.pct(it)}" } ?: ""), style = MaterialTheme.typography.titleSmall)
-        Spacer(Modifier.width(8.dp))
-        Text("($ref)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-fun ToneDotColor(color: Color) {
-    Box(
-        Modifier
-            .size(10.dp)
-            .clip(CircleShape)
-            .background(color),
-    )
-}
-
-@Composable
-private fun SleepHistoryCard(r: AnalysisResult) {
-    val days = r.days.takeLast(14)
-    SectionCard(title = "Schlafdauer (14 Nächte)", icon = Icons.Filled.Insights) {
-        BarChart(
-            values = days.map { it.sleep?.asleepMin?.div(60.0) },
-            colors = days.map { (it.sleep?.scoreTone ?: de.vitalcoach.core.Tone.NEUTRAL).color() },
-            goal = r.sleep.goalHours,
-            labels = days.map { Fmt.weekday(it.date).take(2) },
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "Gestrichelte Linie = dein Schlafziel (${Fmt.hours(r.sleep.goalHours)}). Farbe = Schlaf-Score.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(12.dp))
-        Text("Schlaf-Score (30 Nächte)", style = MaterialTheme.typography.titleSmall)
-        Spacer(Modifier.height(6.dp))
-        val d30 = r.days.takeLast(30)
-        LineChart(
-            listOf(Series(d30.map { it.sleep?.score?.toDouble() }, Palette.Purple, "Score")),
-            height = 110.dp,
-            startLabel = d30.firstOrNull()?.let { Fmt.dayShort(it.date) },
-            endLabel = "heute",
-        )
+        if (ok != null) {
+            Spacer(Modifier.width(6.dp))
+            Text(if (ok) "✓" else "!", color = if (ok) Palette.Good else Palette.Warn, style = MaterialTheme.typography.titleSmall)
+        }
     }
 }
 
 @Composable
 private fun SleepNeedCard(r: AnalysisResult) {
     val s = r.sleep
-    SectionCard(title = "Schlafbedarf heute Nacht", icon = Icons.Filled.Bedtime) {
-        val need = s.needTonightMin
-        if (need == null) {
-            Text("Wird berechnet, sobald Schlafdaten vorliegen.", style = MaterialTheme.typography.bodyMedium)
-            return@SectionCard
-        }
+    val need = s.needTonightMin ?: return
+    SectionCard(title = "Heute Nacht", icon = Icons.Filled.Bedtime) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { BigValue(Fmt.duration(need), "", "empfohlene Schlafdauer") }
+            Column(Modifier.weight(1f)) {
+                Text(Fmt.duration(need), style = MaterialTheme.typography.headlineLarge, color = Palette.Purple)
+                Text("Schlafbedarf", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             val bed = s.recommendedBedtimeMin
             if (bed != null) {
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(Fmt.clock(bed), style = MaterialTheme.typography.headlineMedium, color = Palette.Purple)
-                    Text("Uhr ins Bett", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(Fmt.clock(bed), style = MaterialTheme.typography.headlineLarge)
+                    Text("ins Bett", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
-        Spacer(Modifier.height(6.dp))
-        KeyValue("Basis (dein Schlafziel)", Fmt.hours(s.goalHours))
-        s.needReasons.forEach { Bullet(it) }
-        if (s.needReasons.isEmpty()) Text("Keine Zuschläge – Belastung und Schlafkonto sind ausgeglichen.", style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(8.dp))
+        if (s.needReasons.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            s.needReasons.forEach { Pill(it, Palette.Purple) ; Spacer(Modifier.height(4.dp)) }
+        }
         val pn = s.personalNeedH
         if (pn != null) {
-            KeyValue("Dein persönlicher Schlafbedarf (geschätzt)", Fmt.hours(pn))
-            Text(
-                "Median deiner Schlafdauer in den ${s.personalNeedNights} Nächten, nach denen HRV und Ruhepuls am besten waren.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            Text("Persönlicher Schlafbedarf: wird nach ca. 3 Wochen mit Schlaf- und HRV/Ruhepuls-Daten geschätzt.", style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(6.dp))
+            KeyValue("Dein persönlicher Bedarf (geschätzt)", Fmt.hours(pn))
         }
-        Spacer(Modifier.height(4.dp))
-        de.vitalcoach.app.ui.ProvenanceChip(de.vitalcoach.core.Provenance.ESTIMATED)
+    }
+}
+
+@Composable
+private fun NightsCard(r: AnalysisResult) {
+    val days = r.days.takeLast(14)
+    SectionCard(title = "14 Nächte", icon = Icons.Filled.Insights) {
+        StackedBarChart(
+            days.map { d ->
+                val n = d.sleep
+                if (n == null) {
+                    emptyList<Pair<Double, Color>>()
+                } else if (n.hasStages) {
+                    listOf(n.deepMin / 60 to Palette.Deep, n.lightMin / 60 to Palette.Light, n.remMin / 60 to Palette.Rem)
+                } else {
+                    listOf(n.asleepMin / 60 to Palette.Light)
+                }
+            },
+            goal = r.sleep.goalHours,
+            labels = days.map { Fmt.weekday(it.date).take(2) },
+            height = 160.dp,
+        )
+        Spacer(Modifier.height(8.dp))
+        Legend(listOf("Tief" to Palette.Deep, "Leicht" to Palette.Light, "REM" to Palette.Rem))
+        Spacer(Modifier.height(10.dp))
+        StatRow(
+            listOf(
+                Triple(r.sleep.avgAsleep7Min?.let { Fmt.duration(it) } ?: "–", "Ø 7 Nächte", r.sleep.avgAsleep7Min?.let { durationTone(it).color() }),
+                Triple(r.sleep.debt7H?.let { Fmt.num(it, 1) + " h" } ?: "–", "Defizit 7 T", r.sleep.debt7H?.let { if (it >= 3) Palette.Bad else if (it >= 1.5) Palette.Warn else Palette.Good }),
+                Triple(r.sleep.debt14H?.let { Fmt.num(it, 1) + " h" } ?: "–", "Schuld 14 T", r.sleep.debt14H?.let { if (it >= 6) Palette.Bad else if (it >= 3) Palette.Warn else Palette.Good }),
+            ),
+        )
+    }
+}
+
+@Composable
+private fun SleepWindowCard(r: AnalysisResult) {
+    val days = r.days.takeLast(14)
+    SectionCard(title = "Schlafenszeiten", icon = Icons.Filled.Schedule) {
+        SleepWindowChart(
+            days.map { d ->
+                val n = d.sleep
+                Triple(Fmt.weekday(d.date).take(2), n?.let { it.bedtimeMin to it.wakeMin }, (n?.scoreTone ?: Tone.NEUTRAL).color())
+            },
+        )
+        Spacer(Modifier.height(8.dp))
+        StatRow(
+            listOf(
+                Triple(r.sleep.avgBedtimeMin?.let { Fmt.clock(it) } ?: "–", "Ø ins Bett", null),
+                Triple(r.sleep.avgWakeMin?.let { Fmt.clock(it) } ?: "–", "Ø aufstehen", null),
+                Triple(r.sleep.regularitySdMin?.let { "±" + Fmt.int(it) + "′" } ?: "–", "Schwankung", r.sleep.regularitySdMin?.let { if (it > 60) Palette.Bad else if (it > 30) Palette.Warn else Palette.Good }),
+            ),
+        )
+    }
+}
+
+@Composable
+private fun ConsistencyCard(r: AnalysisResult) {
+    val sri = r.sleep.sri ?: return
+    SectionCard(title = "Schlaf-Konsistenz (SRI)") {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            SemiGauge(
+                (sri / 100).toFloat(), listOf(Palette.Bad, Palette.Warn, Palette.Ok, Palette.Good),
+                Fmt.int(sri), if (sri >= 85) "sehr regelmäßig" else if (sri >= 75) "regelmäßig" else if (sri >= 65) "mittel" else "unregelmäßig",
+            )
+        }
     }
 }
 
@@ -198,27 +252,26 @@ private fun SleepNeedCard(r: AnalysisResult) {
 private fun NightRecoveryCard(r: AnalysisResult) {
     val s = r.sleep
     val h = r.heart
-    SectionCard(title = "Erholung während der Nacht") {
-        val nr = s.nightRecovery
+    val nr = s.nightRecovery
+    if (nr == null && h.nightCurve.size < 3) return
+    SectionCard(title = "Erholung in der Nacht", icon = Icons.Filled.Favorite) {
         if (nr != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ScoreRing(nr.value, "Nächtliche Erholung", nr.tone, size = 88.dp)
-                Spacer(Modifier.width(16.dp))
+                ScoreRing(nr.value, "", nr.tone, size = 84.dp)
+                Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    s.nightRestingHr?.let { KeyValue("Nächtlicher Ruhepuls", "${Fmt.int(it)} bpm") }
-                    s.nightHrv?.let { KeyValue("Nächtliche HRV", "${Fmt.int(it)} ms") }
-                    h.dipPct?.let { KeyValue("Pulsabsenkung", "${Fmt.int(it)} %") }
+                    StatRow(
+                        listOf(
+                            Triple(s.nightRestingHr?.let { Fmt.int(it) } ?: "–", "Ruhepuls", null),
+                            Triple(s.nightHrv?.let { Fmt.int(it) } ?: "–", "HRV ms", null),
+                            Triple(h.dipPct?.let { Fmt.int(it) + " %" } ?: "–", "Absenkung", h.dipPct?.let { if (it >= 10) Palette.Good else Palette.Warn }),
+                        ),
+                    )
                 }
             }
-            Spacer(Modifier.height(10.dp))
-            ScoreBreakdown(nr)
-        } else {
-            Text("Für die nächtliche Erholung braucht es Pulswerte während des Schlafs.", style = MaterialTheme.typography.bodyMedium)
         }
         if (h.nightCurve.size >= 3) {
             Spacer(Modifier.height(10.dp))
-            Text("Puls in der letzten Nacht", style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(4.dp))
             LineChart(
                 listOf(Series(h.nightCurve.map { it.second }, Palette.Bad, "Puls")),
                 height = 120.dp,
@@ -229,56 +282,23 @@ private fun NightRecoveryCard(r: AnalysisResult) {
     }
 }
 
+/** Für Detailseiten: Schlafphasen-Balken einer Nacht. */
 @Composable
-private fun SleepQualityCard(r: AnalysisResult) {
-    val s = r.sleep
-    val n = s.lastNight
-    SectionCard(title = "Schlafqualität im Detail") {
-        if (n != null) {
-            KeyValue("Tatsächlicher Schlaf / Bettzeit", "${Fmt.duration(n.asleepMin)} / ${Fmt.duration(n.inBedMin)}")
-            val eff = n.efficiency
-            if (eff != null) KeyValue("Schlafeffizienz", Fmt.pct(eff), if (eff >= 0.85) Palette.Good else Palette.Warn)
-            n.deepPct?.let { KeyValue("Tiefschlafanteil", Fmt.pct(it) + (s.avgDeepPct?.let { a -> " (Ø ${Fmt.pct(a)})" } ?: "")) }
-            n.remPct?.let { KeyValue("REM-Anteil", Fmt.pct(it) + (s.avgRemPct?.let { a -> " (Ø ${Fmt.pct(a)})" } ?: "")) }
-        }
-        val sri = s.sri
-        if (sri != null) {
-            Spacer(Modifier.height(8.dp))
-            Text("Schlaf-Konsistenz-Score (SRI)", style = MaterialTheme.typography.titleSmall)
-            LabeledBar(
-                if (sri >= 80) "regelmäßig" else if (sri >= 70) "mittel" else "unregelmäßig",
-                (sri / 100).toFloat(), Fmt.int(sri), if (sri >= 80) Palette.Good else if (sri >= 70) Palette.Warn else Palette.Bad,
-            )
-            Text(
-                "Wahrscheinlichkeit, zur gleichen Uhrzeit an aufeinanderfolgenden Tagen im selben Zustand (wach/schlafend) zu sein (Phillips et al. 2017). 100 = jeden Tag exakt gleich.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        val d7 = s.debt7H
-        if (d7 != null) KeyValue("Schlafdefizit 7 Tage", "${Fmt.num(d7, 1)} h", if (d7 >= 3) Palette.Warn else Palette.Good)
-        val d14 = s.debt14H
-        if (d14 != null) KeyValue("Schlafschuld 14 Tage", "${Fmt.num(d14, 1)} h", if (d14 >= 6) Palette.Warn else Palette.Good)
-        s.regularitySdMin?.let { KeyValue("Schwankung der Schlafmitte", "± ${Fmt.int(it)} min") }
-    }
+fun StagesBlock(n: SleepNight) {
+    StackedBar(
+        listOf(n.deepMin to Palette.Deep, n.lightMin to Palette.Light, n.remMin to Palette.Rem, n.awakeMin to Palette.Awake),
+        height = 18.dp,
+    )
+    Spacer(Modifier.height(6.dp))
+    Legend(listOf("Tief" to Palette.Deep, "Leicht" to Palette.Light, "REM" to Palette.Rem, "Wach" to Palette.Awake))
 }
 
 @Composable
-private fun SleepStatsCard(r: AnalysisResult) {
-    val s = r.sleep
-    SectionCard(title = "Deine Durchschnittswerte") {
-        s.avgAsleep7Min?.let { KeyValue("Ø Schlaf (7 Nächte)", Fmt.duration(it)) }
-        s.avgAsleep30Min?.let { KeyValue("Ø Schlaf (30 Nächte)", Fmt.duration(it)) }
-        val debt = s.debt7H
-        if (debt != null) KeyValue("Schlafschuld (7 Nächte)", "${Fmt.num(debt, 1)} h", if (debt >= 3) Palette.Warn else Palette.Good)
-        val reg = s.regularitySdMin
-        if (reg != null) KeyValue("Regelmäßigkeit", "± ${Fmt.int(reg)} min", if (reg > 60) Palette.Warn else Palette.Good)
-        s.avgBedtimeMin?.let { KeyValue("Ø Zubettgehen", Fmt.clock(it) + " Uhr") }
-        s.avgWakeMin?.let { KeyValue("Ø Aufstehen", Fmt.clock(it) + " Uhr") }
-        s.avgDeepPct?.let { KeyValue("Ø Tiefschlaf", Fmt.pct(it)) }
-        s.avgRemPct?.let { KeyValue("Ø REM-Schlaf", Fmt.pct(it)) }
-        s.avgEfficiency?.let { KeyValue("Ø Effizienz", Fmt.pct(it)) }
-        KeyValue("Erfasste Nächte (30 Tage)", "${s.nights}")
-    }
+fun ToneDotColor(color: Color) {
+    Box(
+        Modifier
+            .size(10.dp)
+            .clip(CircleShape)
+            .background(color),
+    )
 }

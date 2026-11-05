@@ -302,6 +302,7 @@ object Analyzer {
                 historyDays = i,
                 debt = debt,
                 illness = illness,
+                sleepMin = night?.asleepMin,
             )
             val nightRec = nightRecovery(dip, lowestPos, lowest?.second, recovery, zone)
 
@@ -438,7 +439,8 @@ object Analyzer {
         return nights.sumOf { goalH - it.asleepMin / 60.0 }.coerceAtLeast(0.0)
     }
 
-    private fun sub(z: Double): Int = (65.0 + 17.5 * z).clamp(0.0, 100.0).roundToInt()
+    /** z-Wert → Punkte. Dein Normalwert = 60 Punkte („solide“); gut ist nur, was besser als normal ist. */
+    private fun sub(z: Double): Int = (60.0 + 15.0 * z).clamp(0.0, 100.0).roundToInt()
 
     internal fun recoveryScore(
         rhr: Double?,
@@ -467,20 +469,30 @@ object Analyzer {
             comps += ScoreComponent(
                 "Ruhepuls",
                 sub(z),
-                if (hasHrv) 0.20 else 0.40,
+                if (hasHrv) 0.25 else 0.45,
                 "${Fmt.num(rhr, 1)} bpm – ${Fmt.signed(rhr - rhrB.mean, 1)} zu deinem Schnitt (${Fmt.num(rhrB.mean, 1)} bpm)",
             )
         }
+        val sleepCap = sleep?.let {
+            when {
+                it.asleepMin < 300 -> 40
+                it.asleepMin < 360 -> 55
+                else -> null
+            }
+        }
         if (sleep != null) {
-            comps += ScoreComponent("Schlaf", sleep.score, if (hasHrv) 0.30 else 0.40, "Schlaf-Score ${sleep.score} (${Fmt.duration(sleep.asleepMin)})")
+            comps += ScoreComponent(
+                "Schlaf", sleep.score, if (hasHrv) 0.25 else 0.33,
+                "Schlaf-Score ${sleep.score} (${Fmt.duration(sleep.asleepMin)})" + (sleepCap?.let { " → Erholung max. $it" } ?: ""),
+            )
         }
         if (resp != null && respB != null) {
             val zUp = (resp - respB.mean) / max(respB.sd, 0.6)
-            val s = (85.0 - 17.5 * max(0.0, zUp)).clamp(0.0, 100.0).roundToInt()
+            val s = (80.0 - 17.5 * max(0.0, zUp)).clamp(0.0, 100.0).roundToInt()
             comps += ScoreComponent(
                 "Atemfrequenz",
                 s,
-                if (hasHrv) 0.05 else 0.08,
+                if (hasHrv) 0.05 else 0.10,
                 "${Fmt.num(resp, 1)} /min – ${Fmt.signed(resp - respB.mean, 1)} zu deinem Schnitt",
             )
         }
@@ -494,7 +506,9 @@ object Analyzer {
             )
         }
         val wsum = comps.sumOf { it.weight }
-        val value = (comps.sumOf { it.score * it.weight } / wsum).roundToInt().coerceIn(0, 100)
+        var value = (comps.sumOf { it.score * it.weight } / wsum).roundToInt().coerceIn(0, 100)
+        // Kurze Nacht begrenzt die Erholung (Schlafmangel beeinträchtigt Regeneration, Leistung und Immunsystem).
+        if (sleepCap != null) value = minOf(value, sleepCap)
         val physio = listOfNotNull(rhrB?.takeIf { rhr != null }, lnHrvB?.takeIf { hrv != null })
         val minN = physio.minOfOrNull { it.n } ?: 0
         val confidence = when {
@@ -529,11 +543,17 @@ object Analyzer {
     }
 
     internal fun acwrScore(acwr: Double): Int = when {
-        acwr <= 1.0 -> 90.0
-        acwr <= 1.3 -> 90.0 - (acwr - 1.0) / 0.3 * 15.0
-        acwr <= 2.0 -> 75.0 - (acwr - 1.3) / 0.7 * 60.0
+        acwr <= 1.1 -> 85.0
+        acwr <= 1.3 -> 85.0 - (acwr - 1.1) / 0.2 * 15.0
+        acwr <= 1.5 -> 70.0 - (acwr - 1.3) / 0.2 * 30.0
+        acwr <= 2.0 -> 40.0 - (acwr - 1.5) / 0.5 * 30.0
         else -> 10.0
     }.roundToInt()
+
+    /** Form-Punkte: ausgeglichene Form (TSB 0) = 70. */
+    internal fun formScore(tsb: Double, ctl: Double): Int = (70.0 + 100.0 * tsb / max(ctl, 15.0)).clamp(10.0, 100.0).roundToInt()
+
+    internal fun debtScore(debtH: Double): Int = (100.0 - debtH * 15.0).clamp(0.0, 100.0).roundToInt()
 
     private fun readinessScore(
         recovery: Score?,
@@ -543,24 +563,25 @@ object Analyzer {
         historyDays: Int,
         debt: Double?,
         illness: Boolean,
+        sleepMin: Double? = null,
     ): Score? {
         if (recovery == null) return null
         val comps = mutableListOf<ScoreComponent>()
-        comps += ScoreComponent("Erholung", recovery.value, 0.5, "Persönlicher Erholungswert ${recovery.value} von 100")
+        comps += ScoreComponent("Erholung", recovery.value, 0.6, "Persönlicher Erholungswert ${recovery.value} von 100")
         if (acwr != null) {
-            comps += ScoreComponent("Belastungssteigerung", acwrScore(acwr), 0.2, "ACWR ${Fmt.num(acwr, 2)} (optimal 0,8–1,3)")
+            comps += ScoreComponent("Belastungssteigerung", acwrScore(acwr), 0.15, "ACWR ${Fmt.num(acwr, 2)} (optimal 0,8–1,3)")
         }
         if (historyDays >= 14) {
-            val rel = tsb / max(ctl, 15.0)
-            val s = (80.0 + 100.0 * rel).clamp(10.0, 100.0).roundToInt()
-            comps += ScoreComponent("Form", s, 0.2, "Form (TSB) ${Fmt.signed(tsb)} bei Fitness ${Fmt.int(ctl)}")
+            comps += ScoreComponent("Form", formScore(tsb, ctl), 0.15, "Form (TSB) ${Fmt.signed(tsb)} bei Fitness ${Fmt.int(ctl)}")
         }
         if (debt != null) {
-            val s = (100.0 - debt * 12.0).clamp(0.0, 100.0).roundToInt()
-            comps += ScoreComponent("Schlafschuld", s, 0.1, "${Fmt.num(debt, 1)} h Schlafdefizit in den letzten 7 Nächten")
+            comps += ScoreComponent("Schlafschuld", debtScore(debt), 0.1, "${Fmt.num(debt, 1)} h Schlafdefizit in den letzten 7 Nächten")
         }
         val wsum = comps.sumOf { it.weight }
         var value = (comps.sumOf { it.score * it.weight } / wsum).roundToInt().coerceIn(0, 100)
+        // Bereitschaft kann nicht deutlich über der Erholung liegen; nach < 6 h Schlaf kein „intensiv“.
+        value = minOf(value, recovery.value + 5)
+        if (sleepMin != null && sleepMin < 360) value = minOf(value, 59)
         if (illness) value = minOf(value, 30)
         val conf = if (historyDays < 21 && recovery.confidence == Confidence.HIGH) Confidence.MEDIUM else recovery.confidence
         return Score(value, comps, conf)
@@ -728,17 +749,17 @@ object Analyzer {
                 "Deine Werte deuten auf eine mögliche beginnende Erkrankung oder starke Überlastung hin. Verzichte heute auf Training – Schlaf, Flüssigkeit und ein ruhiger Spaziergang helfen jetzt am meisten.",
                 Tone.BAD, 0.0, base * 0.2,
             )
-            r >= 67 -> rec(
+            r >= 75 -> rec(
                 "Bereit für intensives Training",
                 "Dein Körper ist bereit für eine fordernde Einheit: Intervalle, ein Tempolauf, schweres Krafttraining oder eine lange Ausdauereinheit.",
                 Tone.GOOD, base * 1.2, base * 1.6,
             )
-            r >= 50 -> rec(
+            r >= 60 -> rec(
                 "Moderates Training",
                 "Gut für eine normale Einheit, überwiegend in Zone 2–3. Sehr harte Intervalle besser auf einen frischeren Tag verschieben.",
                 Tone.OK, base * 0.8, base * 1.2,
             )
-            r >= 34 -> rec(
+            r >= 45 -> rec(
                 "Lockeres Training / aktive Erholung",
                 "Bleib heute in Zone 1–2: lockeres Radfahren, Spazierengehen, Mobility oder Dehnen fördern die Erholung.",
                 Tone.WARN, base * 0.3, base * 0.6,
@@ -979,6 +1000,8 @@ object Analyzer {
 
         // Überlastungsindikator
         val signals = mutableListOf<String>()
+        val checks = mutableListOf<Pair<String, Boolean>>()
+        fun check(name: String, active: Boolean) { checks += name to active }
         load.acwr?.let { if (it > 1.5) signals += "Belastung sprunghaft gestiegen (ACWR ${Fmt.num(it, 2)})" else if (it > 1.3) signals += "Belastung deutlich gesteigert (ACWR ${Fmt.num(it, 2)})" }
         load.monotony?.let { if (it > 2.0) signals += "Sehr gleichförmiges Training (Monotonie ${Fmt.num(it, 1)})" }
         val hb = t?.lnHrvBaseline
@@ -992,6 +1015,14 @@ object Analyzer {
         if (fatigue != null && fatigue > 75) signals += "Hoher Ermüdungsindex ($fatigue)"
         val r3 = days.takeLast(4).mapNotNull { it.readiness?.value }
         if (r3.size == 4 && r3.zipWithNext().all { (a, b) -> b < a } && r3.first() - r3.last() >= 10) signals += "Trainingsbereitschaft sinkt seit 3 Tagen"
+        check("Belastungssprung", (load.acwr ?: 0.0) > 1.3)
+        check("Monotonie", (load.monotony ?: 0.0) > 2.0)
+        check("HRV-Trend", signals.any { it.startsWith("HRV") })
+        check("Ruhepuls-Trend", signals.any { it.startsWith("Ruhepuls") })
+        check("Erholung 7 Tage", signals.any { it.startsWith("Erholung") })
+        check("Schlafdefizit", signals.any { it.startsWith("Schlafdefizit") })
+        check("Ermüdung", signals.any { it.startsWith("Hoher Ermüdungsindex") })
+        check("Bereitschaft sinkt", signals.any { it.startsWith("Trainingsbereitschaft sinkt") })
         val level = when {
             signals.size >= 3 -> 2
             signals.size == 2 -> 1
@@ -1030,6 +1061,7 @@ object Analyzer {
             hrvTrendPct = if (hrv7m != null && hrv30 != null && hrv30 > 0) (hrv7m / hrv30 - 1) * 100 else null,
             rhrDeviation = if (rhrNow != null && rb != null) rhrNow - rb.mean else null,
             rhrDeviationZ = if (rhrNow != null && rb != null) (rhrNow - rb.mean) / max(rb.sd, 1.0) else null,
+            overloadChecks = checks,
         )
     }
 

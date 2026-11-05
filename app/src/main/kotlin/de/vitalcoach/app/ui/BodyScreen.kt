@@ -61,37 +61,26 @@ fun Vo2Card(r: AnalysisResult, vm: MainViewModel?) {
     val vo2 = f.vo2max
     SectionCard(title = "VO2max & Fitnessalter", icon = Icons.Filled.Speed, onClick = vm?.let { { it.open(Route.Metric(MetricKey.VO2MAX)) } }) {
         if (vo2 == null) {
-            Text("Noch nicht genug Daten. Trage die Uhr ein paar Nächte und zeichne Läufe auf.", style = MaterialTheme.typography.bodyMedium)
+            Text("Noch nicht genug Daten – Uhr nachts tragen und Läufe aufzeichnen.", style = MaterialTheme.typography.bodyMedium)
             return@SectionCard
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                BigValue(Fmt.num(vo2, 1), "ml/kg/min", f.vo2Method?.label)
-            }
-            val fa = f.fitnessAge
-            if (fa != null) {
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("$fa", style = MaterialTheme.typography.headlineLarge, color = Palette.Teal)
-                    Text("Fitnessalter", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    f.age?.let { Text("tatsächlich $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                }
-            }
-        }
         val idx = f.vo2CategoryIndex
-        if (idx != null) {
-            Spacer(Modifier.height(12.dp))
-            ScaleBar(
-                FitnessMath.CATEGORY_LABELS.mapIndexed { i, l ->
-                    l to listOf(Palette.Bad, Palette.Orange, Palette.Warn, Palette.Ok, Palette.Good, Palette.Teal)[i]
-                },
-                position = (idx + 0.5f) / 6f,
-                labels = listOf("sehr\nschwach", "schwach", "mittel", "gut", "sehr gut", "hervor-\nragend"),
-            )
+        val catColors = listOf(Palette.Bad, Palette.Orange, Palette.Warn, Palette.Ok, Palette.Good, Palette.Teal)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            SemiGauge(idx?.let { (it + 0.5f) / 6f }, catColors, Fmt.num(vo2, 1), f.vo2CategoryLabel ?: "ml/kg/min", width = 220.dp)
         }
+        Spacer(Modifier.height(10.dp))
+        val fa = f.fitnessAge
+        val age = f.age
+        StatRow(
+            listOf(
+                Triple(fa?.toString() ?: "–", "Fitnessalter", if (fa != null && age != null) (if (fa <= age) Palette.Good else Palette.Warn) else null),
+                Triple(age?.toString() ?: "–", "echtes Alter", null),
+                Triple(r.performance.vo2Change90?.let { Fmt.signed(it, 1) } ?: "–", "Veränderung", r.performance.vo2Change90?.let { if (it >= 0) Palette.Good else Palette.Warn }),
+            ),
+        )
         if (f.vo2History.size >= 2) {
-            Spacer(Modifier.height(12.dp))
-            Text("Verlauf", style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(10.dp))
             LineChart(
                 listOf(Series(f.vo2History.map { it.second }, Palette.Teal, "VO2max")),
                 height = 100.dp,
@@ -100,6 +89,8 @@ fun Vo2Card(r: AnalysisResult, vm: MainViewModel?) {
                 decimals = 1,
             )
         }
+        Spacer(Modifier.height(6.dp))
+        Text(f.vo2Method?.label ?: "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -163,53 +154,14 @@ private fun HrvCard(r: AnalysisResult, vm: MainViewModel) {
 @Composable
 fun ZonesCard(r: AnalysisResult) {
     val f = r.fitness
-    SectionCard(title = "Deine Herzfrequenzzonen") {
+    SectionCard(title = "Pulszonen & Lauf-Pace", icon = Icons.Filled.MonitorHeart) {
+        ZonesCompact(r)
+        Spacer(Modifier.height(8.dp))
         Text(
-            "Maximalpuls ${f.hrMax} bpm (${f.hrMaxSource.label}). Zonen nach Karvonen (Herzfrequenzreserve).",
-            style = MaterialTheme.typography.bodySmall,
+            "HFmax ${f.hrMax} bpm · ${f.hrMaxSource.label}" + (f.zonePaceSource?.let { " · Pace $it, flaches Gelände" } ?: ""),
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(8.dp))
-        f.zones.reversed().forEach { z ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                ToneDotColor(Palette.Zones[z.number])
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Zone ${z.number} · ${z.name}", style = MaterialTheme.typography.titleSmall)
-                    Text(z.purpose, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Spacer(Modifier.width(8.dp))
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("${z.lowBpm}–${z.highBpm} bpm", style = MaterialTheme.typography.titleMedium)
-                    val pace = z.paceText
-                    if (pace != null) {
-                        Text("🏃 $pace", style = MaterialTheme.typography.titleSmall, color = Palette.Zones[z.number])
-                    }
-                }
-            }
-        }
-        val src = f.zonePaceSource
-        Spacer(Modifier.height(6.dp))
-        if (src != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ProvenanceChip(de.vitalcoach.core.Provenance.ESTIMATED)
-                Spacer(Modifier.width(8.dp))
-                Text("Lauf-Pace $src", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Gilt für flaches Gelände und normale Temperaturen. Bei Hitze, Steigungen, Wind oder Müdigkeit ist dein Puls bei gleichem Tempo höher – " +
-                    "dann richte dich nach dem Puls, nicht nach der Pace. Je mehr Läufe mit GPS du aufzeichnest, desto genauer wird die Pace.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            Text(
-                "Die passende Lauf-Pace pro Zone erscheint, sobald Läufe mit GPS oder eine VO2max vorliegen.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 }
 

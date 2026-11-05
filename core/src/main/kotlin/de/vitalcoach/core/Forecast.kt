@@ -71,22 +71,22 @@ object Forecast {
                 chronic = Analyzer.L_CHRONIC * load + (1 - Analyzer.L_CHRONIC) * chronic
                 r = (mu + phi * (r - mu) + beta * load / max(ctlPrev, 20.0)).clamp(0.0, 100.0)
                 variance = variance * phi * phi + sigma * sigma
-                var wsum = 0.5
-                var value = 0.5 * r
+                var wsum = 0.6
+                var value = 0.6 * r
                 if (n >= 21 && chronic > 1.0) {
-                    value += 0.2 * Analyzer.acwrScore(acute / chronic)
-                    wsum += 0.2
+                    value += 0.15 * Analyzer.acwrScore(acute / chronic)
+                    wsum += 0.15
                 }
                 if (n >= 14) {
-                    value += 0.2 * (80.0 + 100.0 * (ctl - atl) / max(ctl, 15.0)).clamp(10.0, 100.0)
-                    wsum += 0.2
+                    value += 0.15 * Analyzer.formScore(ctl - atl, ctl)
+                    wsum += 0.15
                 }
                 if (debtComp != null) {
                     value += 0.1 * debtComp
                     wsum += 0.1
                 }
-                val expected = value / wsum
-                val band = 1.28 * (0.5 / wsum) * sqrt(variance)
+                val expected = minOf(value / wsum, r + 5)
+                val band = 1.28 * (0.6 / wsum) * sqrt(variance)
                 pts += ForecastPoint(
                     t.date.plusDays(k.toLong()),
                     expected.roundToInt().coerceIn(0, 100),

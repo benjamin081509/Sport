@@ -24,13 +24,15 @@ enum class Confidence(val label: String) {
 data class ScoreComponent(val name: String, val score: Int, val weight: Double, val detail: String)
 
 data class Score(val value: Int, val components: List<ScoreComponent>, val confidence: Confidence) {
-    val tone: Tone
-        get() = when {
-            value >= 67 -> Tone.GOOD
-            value >= 50 -> Tone.OK
-            value >= 34 -> Tone.WARN
-            else -> Tone.BAD
-        }
+    val tone: Tone get() = scoreToneOf(value)
+}
+
+/** Einheitliche (kritische) Farbstufen für alle 0–100-Werte: ≥ 75 gut · ≥ 60 solide · ≥ 45 mäßig · darunter schlecht. */
+fun scoreToneOf(value: Int): Tone = when {
+    value >= 75 -> Tone.GOOD
+    value >= 60 -> Tone.OK
+    value >= 45 -> Tone.WARN
+    else -> Tone.BAD
 }
 
 enum class RhrSource(val label: String) {
@@ -60,15 +62,17 @@ data class SleepNight(
     val wakeMin: Double,
     val score: Int = 0,
     val components: List<ScoreComponent> = emptyList(),
+    /** Schlafphasen im Zeitverlauf (für das Hypnogramm). */
+    val stages: List<SleepSegment> = emptyList(),
 ) {
     val deepPct: Double? get() = if (hasStages && asleepMin > 0) deepMin / asleepMin else null
     val remPct: Double? get() = if (hasStages && asleepMin > 0) remMin / asleepMin else null
     val lightPct: Double? get() = if (hasStages && asleepMin > 0) lightMin / asleepMin else null
     val scoreTone: Tone
         get() = when {
-            score >= 80 -> Tone.GOOD
-            score >= 65 -> Tone.OK
-            score >= 50 -> Tone.WARN
+            score >= 85 -> Tone.GOOD
+            score >= 70 -> Tone.OK
+            score >= 55 -> Tone.WARN
             else -> Tone.BAD
         }
 }
@@ -357,6 +361,8 @@ data class RegenerationReport(
     val hrvTrendPct: Double?,
     val rhrDeviation: Double?,
     val rhrDeviationZ: Double?,
+    /** Alle 8 geprüften Warnsignale (Name, aktiv?) für die Ampel-Anzeige. */
+    val overloadChecks: List<Pair<String, Boolean>> = emptyList(),
 )
 
 data class HrrResult(val date: LocalDate, val title: String, val peak: Int, val drop60: Int, val afterExercise: Boolean)
@@ -488,6 +494,10 @@ data class CorrelationInsight(
     val pValue: Double?,
     val strength: String,
     val significant: Boolean,
+    /** Datenpunkte (x, y) für das Streudiagramm. */
+    val points: List<Pair<Double, Double>> = emptyList(),
+    val xLabel: String = "",
+    val yLabel: String = "",
 )
 
 data class Briefing(

@@ -97,17 +97,21 @@ object Explain {
     fun how(key: MetricKey): String = when (key) {
         MetricKey.RECOVERY ->
             "Für HRV, Ruhepuls und Atemfrequenz wird berechnet, wie stark der heutige Wert von deinem 30-Tage-Schnitt abweicht " +
-                "(in Standardabweichungen, HRV logarithmiert nach Plews et al. 2012). Normal = 65 Punkte, jede Standardabweichung " +
-                "besser/schlechter = ±17,5 Punkte. Gewichtung: HRV 40 %, Ruhepuls 25 %, Schlaf-Score 30 %, Atemfrequenz 5 %. " +
-                "Ohne HRV: Ruhepuls 45 %, Schlaf 45 %, Atemfrequenz 10 %. Die ersten 4–7 Tage dienen der Kalibrierung."
+                "(in Standardabweichungen, HRV logarithmiert nach Plews et al. 2012). Dein Normalwert = 60 Punkte (solide), jede " +
+                "Standardabweichung besser/schlechter = ±15 Punkte – „gut“ (≥ 75) ist nur, was besser als dein Normal ist. Gewichtung: " +
+                "HRV 35 %, Ruhepuls 25 %, Schlaf-Score 25 %, Trainingsbelastung 10 %, Atemfrequenz 5 % (ohne HRV: Ruhepuls 45 %, Schlaf 33 %, " +
+                "Belastung 12 %, Atmung 10 %). Nach weniger als 6 h Schlaf maximal 55, nach weniger als 5 h maximal 40 Punkte. " +
+                "Die ersten 4–7 Tage dienen der Kalibrierung."
         MetricKey.READINESS ->
-            "Erholung 50 % + Belastungssteigerung 20 % (Acute:Chronic Workload Ratio, exponentiell gewichtet nach Williams et al. 2017; " +
-                "optimal 0,8–1,3, ab 1,5 erhöhtes Verletzungsrisiko nach Gabbett 2016) + Form 20 % (TSB relativ zur Fitness, Banister-Modell) + " +
-                "Schlafschuld 10 %. Bei Warnzeichen für einen Infekt wird der Wert auf maximal 30 begrenzt."
+            "Erholung 60 % + Belastungssteigerung 15 % (Acute:Chronic Workload Ratio, exponentiell gewichtet nach Williams et al. 2017; " +
+                "optimal 0,8–1,3, ab 1,5 erhöhtes Verletzungsrisiko nach Gabbett 2016) + Form 15 % (TSB relativ zur Fitness, Banister-Modell) + " +
+                "Schlafschuld 10 %. Die Bereitschaft liegt nie mehr als 5 Punkte über der Erholung; nach < 6 h Schlaf maximal 59 (kein intensives " +
+                "Training), bei Warnzeichen für einen Infekt maximal 30. Stufen: ≥ 75 intensiv, ≥ 60 moderat, ≥ 45 locker, darunter Ruhetag."
         MetricKey.SLEEP ->
-            "Dauer 50 % (100 Punkte ab deinem Schlafziel, 0 Punkte bei ≤ 4 h), Effizienz 15 % (100 Punkte ab 92 %), Tiefschlaf 12,5 % " +
-                "(100 Punkte ab 15 %), REM 12,5 % (100 Punkte ab 20 %), Regelmäßigkeit 10 % (Abweichung der Schlafmitte von deinem " +
-                "14-Tage-Median, bis 30 min = 100 Punkte). Referenzwerte: AASM/SRS 2015, National Sleep Foundation (Ohayon et al. 2017)."
+            "Dauer 55 % (Ziel = 100, 7 h = 85, 6 h = 50, 5 h = 20, ≤ 4 h = 0 Punkte), Effizienz 15 % (100 Punkte ab 93 %), Tiefschlaf 10 % " +
+                "(Ziel ≥ 15 % und ≥ 75 min), REM 10 % (Ziel ≥ 20 % und ≥ 90 min), Regelmäßigkeit 10 % (Abweichung der Schlafmitte vom " +
+                "14-Tage-Median, bis 20 min = 100 Punkte). Kurze Nächte werden begrenzt: < 7 h max. 74, < 6 h max. 50, < 5 h max. 35. " +
+                "Referenzwerte: AASM/SRS 2015 (≥ 7 h für Erwachsene), National Sleep Foundation (Ohayon et al. 2017)."
         MetricKey.RESTING_HR ->
             "Niedrigster gleitender 30-Minuten-Mittelwert der Herzfrequenz während deines Hauptschlafs (mind. 3 Messwerte). " +
                 "Ohne Schlafdaten: Ruhepuls-Messung der Uhr bzw. niedrigster 30-Minuten-Schnitt des Tages. Trend = lineare Regression über 60 Tage."

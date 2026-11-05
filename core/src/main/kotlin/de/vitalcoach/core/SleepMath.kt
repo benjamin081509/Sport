@@ -97,6 +97,16 @@ object SleepMath {
             midpointMin = clockMinutes(mid, zone),
             bedtimeMin = clockMinutes(main.start, zone),
             wakeMin = clockMinutes(main.end, zone),
+            stages = main.segments
+                .map { seg ->
+                    SleepSegment(
+                        if (seg.start.isBefore(main.start)) main.start else seg.start,
+                        if (seg.end.isAfter(main.end)) main.end else seg.end,
+                        seg.stage,
+                    )
+                }
+                .filter { it.end.isAfter(it.start) }
+                .sortedBy { it.start },
         )
     }
 
@@ -114,53 +124,80 @@ object SleepMath {
     }
 
     /**
+     * Punkte für die Schlafdauer (kritisch, angelehnt an AASM/SRS 2015: < 7 h gilt als zu wenig).
+     * Ziel erreicht = 100 · 7 h = 85 · 6 h = 50 · 5 h = 20 · ≤ 4 h = 0.
+     */
+    fun durationPoints(h: Double, goalHours: Double): Double {
+        val goal = goalHours.clamp(7.0, 10.0)
+        return when {
+            h >= goal -> 100.0
+            h >= 7.0 -> 85.0 + 15.0 * (h - 7.0) / (goal - 7.0).coerceAtLeast(0.01)
+            h >= 6.0 -> 50.0 + 35.0 * (h - 6.0)
+            h >= 5.0 -> 20.0 + 30.0 * (h - 5.0)
+            h >= 4.0 -> 20.0 * (h - 4.0)
+            else -> 0.0
+        }
+    }
+
+    /** Obergrenze des Schlaf-Scores bei zu kurzer Nacht – kurze Nächte können nicht „gut“ sein. */
+    fun durationCap(h: Double): Int? = when {
+        h < 5.0 -> 35
+        h < 6.0 -> 50
+        h < 7.0 -> 74
+        else -> null
+    }
+
+    /**
      * Schlaf-Score 0–100:
-     *  Dauer 50 % · Effizienz 15 % · Tiefschlaf 12,5 % · REM 12,5 % · Regelmäßigkeit 10 %.
-     *  Ohne Schlafphasen: Dauer 75 % · Regelmäßigkeit 25 %.
+     *  Dauer 55 % · Effizienz 15 % · Tiefschlaf 10 % · REM 10 % · Regelmäßigkeit 10 %,
+     *  Obergrenze bei kurzer Nacht (< 7 h max. 74, < 6 h max. 50, < 5 h max. 35).
+     *  Ohne Schlafphasen: Dauer 75 % · Effizienz 15 % · Regelmäßigkeit 10 %.
      */
     fun score(night: SleepNight, goalHours: Double, previousMidpoints: List<Double>): SleepNight {
         val comps = mutableListOf<ScoreComponent>()
         val asleepH = night.asleepMin / 60.0
-        val goal = goalHours.clamp(5.0, 11.0)
-        val dur = (100.0 * ((asleepH - 4.0) / (goal - 4.0)).clamp(0.0, 1.0)).roundToInt()
-        comps += ScoreComponent("Dauer", dur, 0.50, "${Fmt.duration(night.asleepMin)} geschlafen (Ziel ${Fmt.hours(goal)})")
+        val goal = goalHours.clamp(7.0, 10.0)
+        val cap = durationCap(asleepH)
+        val dur = durationPoints(asleepH, goal).roundToInt()
+        comps += ScoreComponent(
+            "Dauer", dur, if (night.hasStages) 0.55 else 0.75,
+            "${Fmt.duration(night.asleepMin)} geschlafen (Ziel ${Fmt.hours(goal)})" +
+                (cap?.let { " → Gesamtwert max. $it" } ?: ""),
+        )
         night.efficiency?.let { eff ->
-            val s = (100.0 * ((eff - 0.65) / (0.92 - 0.65)).clamp(0.0, 1.0)).roundToInt()
-            comps += ScoreComponent("Effizienz", s, 0.15, "${Fmt.pct(eff)} der Bettzeit geschlafen (gut: ≥ 85 %)")
+            val s = (100.0 * ((eff - 0.70) / 0.23).clamp(0.0, 1.0)).roundToInt()
+            comps += ScoreComponent("Effizienz", s, 0.15, "${Fmt.pct(eff)} der Bettzeit geschlafen (gut: ≥ 90 %)")
         }
         if (night.hasStages) {
             val deep = night.deepPct ?: 0.0
             val rem = night.remPct ?: 0.0
             comps += ScoreComponent(
                 "Tiefschlaf",
-                (100.0 * (deep / 0.15).clamp(0.0, 1.0)).roundToInt(),
-                0.125,
-                "${Fmt.duration(night.deepMin)} (${Fmt.pct(deep)}, typisch 13–23 %)",
+                (100.0 * minOf(deep / 0.15, night.deepMin / 75.0).clamp(0.0, 1.0)).roundToInt(),
+                0.10,
+                "${Fmt.duration(night.deepMin)} (${Fmt.pct(deep)}; Ziel ≥ 15 % und ≥ 75 min)",
             )
             comps += ScoreComponent(
                 "REM-Schlaf",
-                (100.0 * (rem / 0.20).clamp(0.0, 1.0)).roundToInt(),
-                0.125,
-                "${Fmt.duration(night.remMin)} (${Fmt.pct(rem)}, typisch 20–25 %)",
+                (100.0 * minOf(rem / 0.20, night.remMin / 90.0).clamp(0.0, 1.0)).roundToInt(),
+                0.10,
+                "${Fmt.duration(night.remMin)} (${Fmt.pct(rem)}; Ziel ≥ 20 % und ≥ 90 min)",
             )
         }
         val ref = Stats.median(previousMidpoints.takeLast(14))
         if (ref != null && previousMidpoints.size >= 3) {
             val dev = abs(night.midpointMin - ref)
-            val s = (100.0 * (1.0 - (dev - 30.0) / 90.0).clamp(0.0, 1.0)).roundToInt()
+            val s = (100.0 * (1.0 - (dev - 20.0) / 70.0).clamp(0.0, 1.0)).roundToInt()
             comps += ScoreComponent(
                 "Regelmäßigkeit",
                 s,
-                if (night.hasStages) 0.10 else 0.25,
+                0.10,
                 "Schlafmitte ${dev.roundToInt()} min von deinem üblichen Rhythmus entfernt",
             )
         }
-        if (!night.hasStages) {
-            val i = comps.indexOfFirst { it.name == "Dauer" }
-            comps[i] = comps[i].copy(weight = 0.75)
-        }
         val wsum = comps.sumOf { it.weight }
-        val total = if (wsum > 0) comps.sumOf { it.score * it.weight } / wsum else 0.0
+        var total = if (wsum > 0) comps.sumOf { it.score * it.weight } / wsum else 0.0
+        if (cap != null) total = minOf(total, cap.toDouble())
         return night.copy(score = total.roundToInt().coerceIn(0, 100), components = comps)
     }
 

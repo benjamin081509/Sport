@@ -44,10 +44,17 @@ object Coach {
             Tone.WARN -> "Deine Erholung ist nur mäßig (${rec.value})."
             else -> "Deine Erholung ist niedrig (${rec.value}) – dein Körper braucht Ruhe."
         }
+        t.sleep?.let { n ->
+            when {
+                n.asleepMin < 360 -> parts += "Mit nur ${Fmt.duration(n.asleepMin)} Schlaf ist dein Körper heute klar im Defizit – das begrenzt Erholung und Leistungsfähigkeit."
+                n.asleepMin < 420 -> parts += "${Fmt.duration(n.asleepMin)} Schlaf sind weniger als die empfohlenen 7 Stunden."
+                else -> Unit
+            }
+        }
         val weakest = rec.components.minByOrNull { it.score }
-        if (weakest != null && weakest.score < 55) parts += "Größter Bremsfaktor: ${weakest.name} (${weakest.detail})."
+        if (weakest != null && weakest.score < 60) parts += "Größter Bremsfaktor: ${weakest.name} (${weakest.detail})."
         val strongest = rec.components.maxByOrNull { it.score }
-        if (strongest != null && strongest.score >= 75 && strongest != weakest) parts += "Positiv: ${strongest.name} (${strongest.detail})."
+        if (strongest != null && strongest.score >= 80 && strongest != weakest) parts += "Positiv: ${strongest.name} (${strongest.detail})."
         if (rcm != null) parts += "Empfehlung: ${rcm.title}."
         calibrationNote(r)?.let { parts += it }
         val tips = mutableListOf<String>()
@@ -69,8 +76,8 @@ object Coach {
         val s = r.todayMetrics?.recovery ?: return noData("Erholung", "Für die Erholung braucht die App mindestens eine Nacht mit Schlaf- und Pulsdaten.")
         val headline = when (s.tone) {
             Tone.GOOD -> "Gut erholt"
-            Tone.OK -> "Solide erholt"
-            Tone.WARN -> "Teilweise erholt"
+            Tone.OK -> "Solide, aber nicht voll erholt"
+            Tone.WARN -> "Nur teilweise erholt"
             else -> "Kaum erholt"
         }
         val text = buildString {
@@ -127,12 +134,17 @@ object Coach {
         val goalMin = sr.goalHours * 60
         val headline = when (n.scoreTone) {
             Tone.GOOD -> "Erholsame Nacht"
-            Tone.OK -> "Ordentliche Nacht"
+            Tone.OK -> "Ordentliche Nacht mit Luft nach oben"
             Tone.WARN -> "Mäßige Nacht"
-            else -> "Unruhige / kurze Nacht"
+            else -> if (n.asleepMin < 360) "Zu kurze Nacht" else "Schlechte Nacht"
         }
         val text = buildString {
             append("Schlaf-Score ${n.score}: Du hast ${Fmt.duration(n.asleepMin)} geschlafen (${Fmt.clock(n.bedtimeMin)}–${Fmt.clock(n.wakeMin)} Uhr). ")
+            when {
+                n.asleepMin < 360 -> append("Das ist deutlich zu wenig: Unter 6 Stunden sinken Reaktionszeit, Ausdauer- und Kraftleistung messbar, Appetit und Blutzucker geraten aus dem Gleichgewicht und das Infektrisiko steigt. ")
+                n.asleepMin < 420 -> append("Das liegt unter den für Erwachsene empfohlenen 7–9 Stunden. ")
+                else -> Unit
+            }
             n.efficiency?.let { append("Schlafeffizienz ${Fmt.pct(it)}. ") }
             if (n.hasStages) {
                 append("Tiefschlaf ${Fmt.duration(n.deepMin)} (${Fmt.pct(n.deepPct ?: 0.0)}), REM ${Fmt.duration(n.remMin)} (${Fmt.pct(n.remPct ?: 0.0)}). ")
@@ -339,8 +351,9 @@ object Coach {
         if (tips.isEmpty()) tips += "Sehr aktiv – weiter so!"
         val tone = when {
             avg >= a.stepGoal -> Tone.GOOD
-            avg >= a.stepGoal * 0.7 -> Tone.OK
-            else -> Tone.WARN
+            avg >= a.stepGoal * 0.85 -> Tone.OK
+            avg >= a.stepGoal * 0.6 -> Tone.WARN
+            else -> Tone.BAD
         }
         return CoachText("Alltagsaktivität", text, tips, tone)
     }

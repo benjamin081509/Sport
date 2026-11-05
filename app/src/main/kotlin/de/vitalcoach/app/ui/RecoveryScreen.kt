@@ -1,6 +1,8 @@
 package de.vitalcoach.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -8,45 +10,54 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import de.vitalcoach.app.MainViewModel
 import de.vitalcoach.app.Route
 import de.vitalcoach.app.UiState
 import de.vitalcoach.core.AnalysisResult
 import de.vitalcoach.core.Coach
+import de.vitalcoach.core.ForecastScenario
 import de.vitalcoach.core.Fmt
 import de.vitalcoach.core.MetricKey
-import de.vitalcoach.core.Provenance
 import de.vitalcoach.core.Tone
 import de.vitalcoach.core.forecast
 import de.vitalcoach.core.regeneration
+import de.vitalcoach.core.scoreToneOf
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+val ToneScale = listOf(Palette.Bad, Palette.Warn, Palette.Ok, Palette.Good)
 
 @Composable
 fun RecoveryScreen(state: UiState, vm: MainViewModel, padding: PaddingValues) {
     val r = state.result
     LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item { Text("Erholung & Bereitschaft", style = MaterialTheme.typography.headlineMedium) }
+        item { Text("Erholung", style = MaterialTheme.typography.headlineMedium) }
         if (r == null) {
             item { Text("Noch keine Daten vorhanden.") }
             return@LazyColumn
@@ -55,15 +66,17 @@ fun RecoveryScreen(state: UiState, vm: MainViewModel, padding: PaddingValues) {
     }
 }
 
-/** Alle Erholungs-Karten – wird auch auf der Detailseite „Regeneration“ verwendet. */
+/** Alle Erholungs-Karten – auch für die Detailseite „Regeneration“. */
 fun LazyListScope.recoveryItems(r: AnalysisResult, vm: MainViewModel) {
     item { PersonalRecoveryCard(r, vm) }
+    item { RecoveryHeatmapCard(r) }
     item { RegenerationCard(r) }
+    item { FatigueBalanceCard(r) }
     item { OverloadCard(r) }
-    item { CoachCard(Coach.regeneration(r), title = "Bewertung deiner Regeneration") }
     item { HrvTrendCard(r, vm) }
     item { RhrDeviationCard(r, vm) }
     item { ForecastCard(r, vm) }
+    item { CoachCard(Coach.regeneration(r), title = "Coach · Regeneration") }
 }
 
 @Composable
@@ -73,82 +86,117 @@ private fun PersonalRecoveryCard(r: AnalysisResult, vm: MainViewModel) {
     val ready = t?.readiness
     SectionCard(title = "Persönlicher Erholungswert", icon = Icons.Filled.BatteryChargingFull, onClick = { vm.open(Route.Metric(MetricKey.RECOVERY)) }) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            ScoreRing(rec?.value, "Erholung", rec?.tone ?: Tone.NEUTRAL, size = 92.dp, caption = rec?.let { recoveryLabel(it.value) })
-            Spacer(Modifier.width(12.dp))
-            ScoreRing(
-                ready?.value, "Bereitschaft", ready?.tone ?: Tone.NEUTRAL, size = 92.dp,
-                caption = ready?.let { readinessLabel(it.value) },
-                onClick = { vm.open(Route.Metric(MetricKey.READINESS)) },
+            SemiGauge(
+                rec?.value?.let { it / 100f }, ToneScale,
+                rec?.value?.toString() ?: "–", rec?.value?.let { recoveryLabel(it) } ?: "Erholung",
+                width = 190.dp,
             )
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                ProvenanceChip(Provenance.CALCULATED)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Kombiniert HRV, Ruhepuls, Schlafqualität, Atemfrequenz und deine Trainingsbelastung.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                ScoreRing(ready?.value, "Bereitschaft", ready?.tone ?: Tone.NEUTRAL, size = 84.dp, caption = ready?.value?.let { readinessLabel(it) }) {
+                    vm.open(Route.Metric(MetricKey.READINESS))
+                }
             }
         }
         if (rec != null) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             ScoreBreakdown(rec)
         }
     }
 }
 
 @Composable
+private fun RecoveryHeatmapCard(r: AnalysisResult) {
+    val vals = r.days.takeLast(84).map { it.date to it.recovery?.value }
+    if (vals.none { it.second != null }) return
+    SectionCard(title = "Erholung · 12 Wochen", icon = Icons.Filled.CalendarMonth) {
+        CalendarHeatmap(vals)
+    }
+}
+
+@Composable
 fun RegenerationCard(r: AnalysisResult) {
     val g = r.regeneration
-    SectionCard(title = "Regeneration nach Training", icon = Icons.Filled.ShowChart) {
+    SectionCard(title = "Regeneration nach Training", icon = Icons.Filled.Timeline) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             val idx = g.regenerationIndex
-            ScoreRing(idx, "Regenerationsindex", scoreTone(idx), size = 92.dp, caption = idx?.let { "$it %" })
+            ScoreRing(idx, "", scoreToneOf(idx ?: 0).takeIf { idx != null } ?: Tone.NEUTRAL, size = 96.dp, caption = "%")
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 if (g.remainingHours >= 1) {
-                    BigValue(Fmt.int(g.remainingHours), "h", "bis zur vollen Erholung")
+                    BigValue(Fmt.int(g.remainingHours), "h", "bis voll erholt")
                     val ready = g.readyAt
                     if (ready != null) {
-                        val f = DateTimeFormatter.ofPattern("EEE, HH:mm", Locale.GERMANY)
-                        Text("voraussichtlich ${ready.atZone(ZoneId.systemDefault()).format(f)} Uhr", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            ready.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("EEE, HH:mm", Locale.GERMANY)) + " Uhr",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Palette.Warn,
+                        )
                     }
                 } else {
-                    BigValue("0", "h", "keine offene Erholung")
+                    BigValue("✓", "", "keine offene Erholung", Palette.Good)
                 }
-                Spacer(Modifier.height(4.dp))
-                ProvenanceChip(Provenance.ESTIMATED)
             }
         }
         if (g.recent.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
-            Text("Erholungsdauer deiner letzten Trainings", style = MaterialTheme.typography.titleSmall)
             g.recent.take(5).forEach { info ->
                 val w = info.workout.workout
-                val done = 1.0 - info.remainingH / info.hours
-                LabeledBar(
-                    "${w.type.emoji} ${w.title ?: w.type.label} · ${Fmt.dayShort(w.start.atZone(ZoneId.systemDefault()).toLocalDate())}",
-                    done.toFloat(),
-                    if (info.remainingH > 0) "noch ${Fmt.int(info.remainingH)} h von ${Fmt.int(info.hours)} h" else "erholt (${Fmt.int(info.hours)} h)",
-                    if (info.remainingH > 0) Palette.Warn else Palette.Good,
-                )
+                val done = (1.0 - info.remainingH / info.hours).toFloat()
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(w.type.emoji, style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "${w.title ?: w.type.label} · ${Fmt.dayShort(w.start.atZone(ZoneId.systemDefault()).toLocalDate())}",
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
+                            Box(
+                                Modifier.fillMaxWidth(done.coerceIn(0.02f, 1f)).height(8.dp).clip(RoundedCornerShape(4.dp))
+                                    .background(if (info.remainingH > 0) Palette.Warn else Palette.Good),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (info.remainingH > 0) "${Fmt.int(info.remainingH)} h" else "✓",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (info.remainingH > 0) Palette.Warn else Palette.Good,
+                        modifier = Modifier.width(40.dp),
+                    )
+                }
             }
         }
-        Spacer(Modifier.height(12.dp))
-        val fat = g.fatigueIndex
-        Text("Ermüdungsindex (Fatigue Index)", style = MaterialTheme.typography.titleSmall)
-        Spacer(Modifier.height(4.dp))
-        ScaleBar(
-            listOf("frisch" to Palette.Light, "ausgeglichen" to Palette.Good, "erhöht" to Palette.Warn, "hoch" to Palette.Bad),
-            position = fat?.let { (it / 100f) },
-        )
-        Text("${fat ?: "–"} – ${g.fatigueLabel}", style = MaterialTheme.typography.bodyMedium, color = g.fatigueTone.color())
+    }
+}
+
+@Composable
+private fun FatigueBalanceCard(r: AnalysisResult) {
+    val g = r.regeneration
+    SectionCard(title = "Ermüdung & Balance", icon = Icons.Filled.Speed) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            val fat = g.fatigueIndex
+            SemiGauge(
+                fat?.let { it / 100f }, listOf(Palette.Light, Palette.Good, Palette.Warn, Palette.Bad),
+                fat?.toString() ?: "–", "Ermüdung", width = 150.dp,
+            )
+            val bal = g.balance
+            SemiGauge(
+                bal?.let { ((it - 0.5) / 1.5).toFloat() }, listOf(Palette.Light, Palette.Good, Palette.Warn, Palette.Bad),
+                bal?.let { Fmt.num(it, 2) } ?: "–", "Belastung : Erholung", width = 150.dp,
+            )
+        }
         Spacer(Modifier.height(10.dp))
-        KeyValue("Belastungs-/Erholungsverhältnis", g.balance?.let { "${Fmt.num(it, 2)} · ${g.balanceLabel}" } ?: "–", g.balanceTone.color())
-        KeyValue("Trainingsbelastung 7 Tage", "${Fmt.int(g.load7)} TRIMP")
-        KeyValue("Trainingsbelastung 28 Tage", "${Fmt.int(g.load28)} TRIMP")
-        KeyValue("Trainingsbelastung 90 Tage", "${Fmt.int(g.load90)} TRIMP")
+        StatRow(
+            listOf(
+                Triple(Fmt.int(g.load7), "TRIMP 7 T", null),
+                Triple(Fmt.int(g.load28), "TRIMP 28 T", null),
+                Triple(Fmt.int(g.load90), "TRIMP 90 T", null),
+            ),
+        )
     }
 }
 
@@ -161,18 +209,27 @@ fun OverloadCard(r: AnalysisResult) {
             Spacer(Modifier.width(10.dp))
             Text(g.overloadLabel, style = MaterialTheme.typography.titleMedium, color = g.overloadTone.color())
         }
-        Spacer(Modifier.height(8.dp))
-        if (g.overloadSignals.isEmpty()) {
-            Text("Keines der 8 geprüften Warnsignale ist aktiv.", style = MaterialTheme.typography.bodyMedium)
-        } else {
-            g.overloadSignals.forEach { Bullet(it) }
+        Spacer(Modifier.height(10.dp))
+        val checks = g.overloadChecks
+        checks.chunked(2).forEach { row ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { (name, active) ->
+                    Row(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background((if (active) Palette.Bad else Palette.Good).copy(alpha = 0.10f))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).background(if (active) Palette.Bad else Palette.Good))
+                        Spacer(Modifier.width(8.dp))
+                        Text(name, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
         }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "Geprüft: Belastungssprung (ACWR), Monotonie, HRV-Trend, Ruhepuls-Trend, Erholung, Schlafdefizit, Ermüdung, Bereitschafts-Trend.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -183,18 +240,18 @@ private fun HrvTrendCard(r: AnalysisResult, vm: MainViewModel) {
     val days = r.days.takeLast(60)
     SectionCard(title = "HRV-Trend", icon = Icons.Filled.MonitorHeart, onClick = { vm.open(Route.Metric(MetricKey.HRV)) }) {
         if (!r.quality.hasHrv) {
-            Text("Samsung Health stellt aktuell keine HRV-Werte über Health Connect bereit.", style = MaterialTheme.typography.bodyMedium)
+            Text("Keine HRV über Health Connect verfügbar.", style = MaterialTheme.typography.bodyMedium)
             return@SectionCard
         }
-        Row {
-            Column(Modifier.weight(1f)) { BigValue(f.hrvNow?.let { Fmt.int(it) } ?: "–", "ms", "Ø 7 Tage") }
-            val tr = g.hrvTrendPct
-            Column(horizontalAlignment = Alignment.End) {
-                Text(tr?.let { Fmt.signed(it) + " %" } ?: "–", style = MaterialTheme.typography.headlineMedium, color = if ((tr ?: 0.0) >= -5) Palette.Good else Palette.Warn)
-                Text("vs. 30-Tage-Schnitt", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        Spacer(Modifier.height(8.dp))
+        val tr = g.hrvTrendPct
+        StatRow(
+            listOf(
+                Triple(f.hrvNow?.let { Fmt.int(it) } ?: "–", "ms Ø 7 T", null),
+                Triple(f.hrvBaseline?.let { Fmt.int(it) } ?: "–", "ms Ø 30 T", null),
+                Triple(tr?.let { Fmt.signed(it) + " %" } ?: "–", "Trend", if ((tr ?: 0.0) >= -5) Palette.Good else Palette.Warn),
+            ),
+        )
+        Spacer(Modifier.height(10.dp))
         val lo = f.hrvNormalLow
         val hi = f.hrvNormalHigh
         LineChart(
@@ -213,24 +270,20 @@ private fun RhrDeviationCard(r: AnalysisResult, vm: MainViewModel) {
     val days = r.days.takeLast(30)
     SectionCard(title = "Ruhepuls-Abweichung", icon = Icons.Filled.Favorite, onClick = { vm.open(Route.Metric(MetricKey.RESTING_HR)) }) {
         val dev = g.rhrDeviation
-        Row {
-            Column(Modifier.weight(1f)) { BigValue(t?.restingHr?.let { Fmt.int(it) } ?: "–", "bpm", "heute") }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(dev?.let { Fmt.signed(it, 1) } ?: "–", style = MaterialTheme.typography.headlineMedium, color = if ((dev ?: 0.0) >= 3) Palette.Warn else Palette.Good)
-                Text("bpm zu deinem Normalwert", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        g.rhrDeviationZ?.let {
-            Text("Das entspricht ${Fmt.signed(it, 1)} Standardabweichungen.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Spacer(Modifier.height(8.dp))
+        StatRow(
+            listOf(
+                Triple(t?.restingHr?.let { Fmt.int(it) } ?: "–", "bpm heute", null),
+                Triple(dev?.let { Fmt.signed(it, 1) } ?: "–", "zu normal", if ((dev ?: 0.0) >= 3) Palette.Warn else Palette.Good),
+                Triple(g.rhrDeviationZ?.let { Fmt.signed(it, 1) } ?: "–", "Std.-Abw.", null),
+            ),
+        )
+        Spacer(Modifier.height(10.dp))
         val b = t?.rhrBaseline
         LineChart(
             listOf(Series(days.map { it.restingHr }, Palette.Bad, "Ruhepuls")),
             band = b?.let { (it.mean - it.sd) to (it.mean + it.sd) },
             startLabel = days.firstOrNull()?.let { Fmt.dayShort(it.date) },
             endLabel = "heute",
-            decimals = 0,
         )
     }
 }
@@ -238,30 +291,25 @@ private fun RhrDeviationCard(r: AnalysisResult, vm: MainViewModel) {
 @Composable
 fun ForecastCard(r: AnalysisResult, vm: MainViewModel?) {
     val f = r.forecast
-    SectionCard(title = "Prognose: Bereitschaft in 1–3 Tagen", icon = Icons.Filled.Psychology, onClick = vm?.let { { it.open(Route.Metric(MetricKey.FORECAST)) } }) {
+    SectionCard(title = "Prognose · 1–3 Tage", icon = Icons.Filled.Psychology, onClick = vm?.let { { it.open(Route.Metric(MetricKey.FORECAST)) } }) {
         if (f == null) {
-            Text("Die Prognose erscheint, sobald ein Erholungswert berechnet wurde.", style = MaterialTheme.typography.bodyMedium)
+            Text("Erscheint, sobald ein Erholungswert vorliegt.", style = MaterialTheme.typography.bodyMedium)
             return@SectionCard
         }
-        ForecastTable(f)
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ProvenanceChip(Provenance.ESTIMATED)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "Zahl = erwarteter Wert, darunter der 80-%-Bereich. " + if (f.personalModel) "An deine Daten angepasst." else "Noch Standardmodell.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        ForecastChart(f, scenarios = ForecastScenario.entries)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Punkt = erwartet, Balken = 80-%-Bereich" + if (f.personalModel) " · an dich angepasst" else "",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
 @Composable
 fun ForecastDetail(r: AnalysisResult) {
-    Column {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         ForecastCard(r, null)
-        Spacer(Modifier.height(12.dp))
-        CoachCard(Coach.forecast(r))
+        CoachCard(Coach.forecast(r), title = "Coach · Prognose")
     }
 }
