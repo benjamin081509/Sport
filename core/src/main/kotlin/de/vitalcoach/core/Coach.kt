@@ -200,8 +200,13 @@ object Coach {
             LoadStatus.OVERREACHING -> tips += "Reduziere die Belastung in den nächsten 3–5 Tagen um 30–40 %, bis das ACWR wieder unter 1,3 liegt."
             LoadStatus.HIGH -> tips += "Du steigerst gerade stark. Plane in den nächsten Tagen bewusst einen Ruhe- oder lockeren Tag ein."
             LoadStatus.DETRAINING -> tips += "Deine Belastung ist niedriger als gewohnt. Als Erholungswoche ideal – länger als 2 Wochen kostet es aber Fitness."
-            LoadStatus.OPTIMAL -> tips += "Perfekte Steigerung. Erhöhe die Wochenbelastung nicht mehr als ca. 10 % pro Woche."
+            LoadStatus.OPTIMAL -> tips += "Kontrollierter Aufbau – steigere weiter in kleinen Schritten (grob max. 10–20 % pro Woche)."
+            LoadStatus.MAINTAIN -> tips += "Deine Belastung ist wie gewohnt: Das hält die Fitness. Für Fortschritt die Wochenbelastung behutsam steigern."
             else -> Unit
+        }
+        val before = l.weekAvgBefore
+        if (before != null && before >= 10 && l.weekAvg28 < 0.6 * before) {
+            tips += "Du trainierst seit etwa einem Monat deutlich weniger als davor (${Fmt.int(l.weekAvg28)} statt ${Fmt.int(before)} Punkte pro Woche). Steig schrittweise wieder ein, statt sofort zum alten Umfang zurückzukehren."
         }
         if (l.easyPct != null && l.easyPct < 0.7 && (l.zoneMin28.sum() > 120)) {
             tips += "Nur ${Fmt.pct(l.easyPct)} deines Trainings sind locker. Ausdauersportler profitieren am meisten von ca. 80 % locker / 20 % intensiv (Seiler). Mach lockere Einheiten wirklich locker (Zone 2: ${zoneRange(r, 2)})."

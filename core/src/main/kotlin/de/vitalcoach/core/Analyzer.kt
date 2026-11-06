@@ -393,7 +393,7 @@ object Analyzer {
             today = today,
             profile = profile,
             days = days,
-            workouts = workouts.sortedByDescending { it.workout.start },
+            workouts = regenInfos.map { (w, h) -> w.copy(recoveryH = h) }.sortedByDescending { it.workout.start },
             fitness = fitness,
             load = load,
             sleep = sleep,
@@ -698,8 +698,14 @@ object Analyzer {
         val loads7 = last7.map { it.load }
         val mean7 = loads7.average().takeIf { !it.isNaN() } ?: 0.0
         val sd7 = Stats.sd(loads7)
-        val monotony = if (sd7 != null && sd7 > 0.5 && mean7 > 0) mean7 / sd7 else null
+        val trainingDays7 = loads7.count { it >= 15.0 }
+        // Monotonie (Foster) setzt regelmäßiges Training voraus – bei weniger als 3 Trainingstagen nicht aussagekräftig.
+        val monotony = if (trainingDays7 >= 3 && sd7 != null && sd7 > 0.5 && mean7 > 0) mean7 / sd7 else null
         val weekLoad = loads7.sum()
+        val load28 = days.takeLast(28)
+        val before = days.dropLast(28).takeLast(62)
+        val weekAvgBefore = if (before.size >= 28) before.sumOf { it.load } / before.size * 7.0 else null
+        val lastWorkoutDate = workouts.filter { it.durationMin >= 10 }.maxOfOrNull { it.workout.start.atZone(zone).toLocalDate() }
         val recent28 = workouts.filter { ChronoUnit.DAYS.between(it.workout.start.atZone(zone).toLocalDate(), today) in 0..27 }
         val z = DoubleArray(6)
         recent28.forEach { w -> w.zoneMin.forEachIndexed { i, m -> z[i] += m } }
@@ -708,7 +714,7 @@ object Analyzer {
         val status = when {
             t == null || workouts.isEmpty() || acwr == null -> LoadStatus.NO_DATA
             acwr < 0.8 -> LoadStatus.DETRAINING
-            acwr < 1.0 -> LoadStatus.MAINTAIN
+            acwr < 1.1 -> LoadStatus.MAINTAIN
             acwr <= 1.3 -> LoadStatus.OPTIMAL
             acwr <= 1.5 -> LoadStatus.HIGH
             else -> LoadStatus.OVERREACHING
@@ -731,6 +737,13 @@ object Analyzer {
             workouts7 = last7.sumOf { it.workoutCount },
             recommendation = recommend(days.lastOrNull(), sex),
             historyDays = days.size,
+            acuteWeek = t?.let { it.acuteLoad * 7.0 },
+            chronicWeek = t?.let { it.chronicLoad * 7.0 },
+            trainingDays7 = trainingDays7,
+            weekAvg28 = if (load28.isNotEmpty()) load28.sumOf { it.load } / load28.size * 7.0 else 0.0,
+            weekAvgBefore = weekAvgBefore,
+            daysSinceWorkout = lastWorkoutDate?.let { ChronoUnit.DAYS.between(it, today).toInt() },
+            ctl28Ago = if (days.size > 28) days[days.size - 29].ctl else null,
         )
     }
 

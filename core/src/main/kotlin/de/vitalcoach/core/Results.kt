@@ -149,6 +149,8 @@ data class WorkoutAnalysis(
     val vo2Estimate: Double?,
     val paceSecPerKm: Double?,
     val focus: String,
+    /** Geschätzte Erholungszeit in Stunden (Regenerationsmodell). */
+    val recoveryH: Double? = null,
 )
 
 enum class Vo2Method(val label: String, val detail: String) {
@@ -232,11 +234,11 @@ data class FitnessReport(
 
 enum class LoadStatus(val label: String, val tone: Tone, val description: String) {
     NO_DATA("Noch zu wenige Daten", Tone.NEUTRAL, "Für eine Belastungsbewertung braucht es mindestens 3 Wochen Trainingsdaten."),
-    DETRAINING("Entlastung", Tone.OK, "Deine aktuelle Belastung liegt deutlich unter deinem Gewohnten. Gut zur Erholung – dauerhaft sinkt aber die Fitness."),
-    OPTIMAL("Produktiv", Tone.GOOD, "Deine Belastung steigt kontrolliert – ideal für Fortschritte."),
-    MAINTAIN("Erhaltend", Tone.GOOD, "Deine Belastung entspricht deinem gewohnten Niveau."),
-    HIGH("Erhöht", Tone.WARN, "Deine Belastung ist deutlich höher als gewohnt. Achte auf Erholung."),
-    OVERREACHING("Überlastet", Tone.BAD, "Deine Belastung ist sprunghaft gestiegen (ACWR > 1,5). Das Verletzungsrisiko ist erhöht."),
+    DETRAINING("Weniger als gewohnt", Tone.OK, "Deine aktuelle Belastung liegt deutlich unter deinem Gewohnten. Gut zur Erholung – dauerhaft sinkt aber die Fitness."),
+    OPTIMAL("Aufbau", Tone.GOOD, "Deine Belastung steigt in einem sicheren Maß – ideal für Fortschritte."),
+    MAINTAIN("Wie gewohnt", Tone.GOOD, "Deine Belastung entspricht deinem gewohnten Niveau – sicher, aber ohne Steigerung."),
+    HIGH("Starke Steigerung", Tone.WARN, "Deine Belastung ist deutlich höher als gewohnt. Achte auf Erholung."),
+    OVERREACHING("Belastungssprung", Tone.BAD, "Deine Belastung ist sprunghaft gestiegen (ACWR > 1,5). Das Verletzungsrisiko ist erhöht."),
 }
 
 data class TrainingRecommendation(
@@ -269,6 +271,20 @@ data class LoadReport(
     val workouts7: Int,
     val recommendation: TrainingRecommendation?,
     val historyDays: Int,
+    /** Kurzfristige (akute) Belastung, gewichtetes Mittel, umgerechnet auf TRIMP pro Woche. */
+    val acuteWeek: Double? = null,
+    /** Gewohnte (chronische) Belastung, gewichtetes Mittel, umgerechnet auf TRIMP pro Woche. */
+    val chronicWeek: Double? = null,
+    /** Tage der letzten 7 mit nennenswertem Training (≥ 15 TRIMP). */
+    val trainingDays7: Int = 0,
+    /** Ø TRIMP pro Woche in den letzten 28 Tagen. */
+    val weekAvg28: Double = 0.0,
+    /** Ø TRIMP pro Woche in den Tagen 29–90 davor (null, wenn zu wenig Verlauf). */
+    val weekAvgBefore: Double? = null,
+    /** Tage seit dem letzten Training (≥ 10 min). */
+    val daysSinceWorkout: Int? = null,
+    /** Fitness-Wert (CTL) vor 28 Tagen – für den Trend. */
+    val ctl28Ago: Double? = null,
 )
 
 data class SleepReport(

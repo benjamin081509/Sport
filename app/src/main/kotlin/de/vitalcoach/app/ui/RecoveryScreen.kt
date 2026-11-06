@@ -39,6 +39,7 @@ import de.vitalcoach.core.AnalysisResult
 import de.vitalcoach.core.Coach
 import de.vitalcoach.core.ForecastScenario
 import de.vitalcoach.core.Fmt
+import de.vitalcoach.core.Meaning
 import de.vitalcoach.core.MetricKey
 import de.vitalcoach.core.Tone
 import de.vitalcoach.core.forecast
@@ -178,25 +179,29 @@ private fun FatigueBalanceCard(r: AnalysisResult) {
     val g = r.regeneration
     SectionCard(title = "Ermüdung & Balance", icon = Icons.Filled.Speed) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            val fat = g.fatigueIndex
-            SemiGauge(
-                fat?.let { it / 100f }, listOf(Palette.Light, Palette.Good, Palette.Warn, Palette.Bad),
-                fat?.toString() ?: "–", "Ermüdung", width = 150.dp,
-            )
-            val bal = g.balance
-            SemiGauge(
-                bal?.let { ((it - 0.5) / 1.5).toFloat() }, listOf(Palette.Light, Palette.Good, Palette.Warn, Palette.Bad),
-                bal?.let { Fmt.num(it, 2) } ?: "–", "Belastung : Erholung", width = 150.dp,
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                val fat = g.fatigueIndex
+                SemiGauge(
+                    fat?.let { it / 100f }, listOf(Palette.Light, Palette.Good, Palette.Warn, Palette.Bad),
+                    fat?.toString() ?: "–", "Ermüdung", width = 150.dp,
+                )
+                Text(g.fatigueLabel.substringBefore(" –"), style = MaterialTheme.typography.labelMedium, color = g.fatigueTone.color())
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                val bal = g.balance
+                SemiGauge(
+                    bal?.let { ((it - 0.5) / 1.5).toFloat() }, listOf(Palette.Light, Palette.Good, Palette.Warn, Palette.Bad),
+                    bal?.let { Fmt.num(it, 2) } ?: "–", "Belastung : Erholung", width = 150.dp,
+                )
+                Text(g.balanceLabel, style = MaterialTheme.typography.labelMedium, color = g.balanceTone.color())
+            }
         }
-        Spacer(Modifier.height(10.dp))
-        StatRow(
-            listOf(
-                Triple(Fmt.int(g.load7), "TRIMP 7 T", null),
-                Triple(Fmt.int(g.load28), "TRIMP 28 T", null),
-                Triple(Fmt.int(g.load90), "TRIMP 90 T", null),
-            ),
-        )
+        Spacer(Modifier.height(14.dp))
+        Text("Trainingspunkte (TRIMP)", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(2.dp))
+        WeekCompareBars(r.load)
+        Spacer(Modifier.height(8.dp))
+        MeaningBox(Meaning.weeks(r.load))
     }
 }
 

@@ -121,8 +121,12 @@ object Explain {
         MetricKey.LOAD ->
             "TRIMP nach Banister: Minuten × HFR × 0,64 × e^(1,92 × HFR) für Männer bzw. 0,86 × e^(1,67 × HFR) für Frauen; HFR = " +
                 "(Puls − Ruhepuls) / (HFmax − Ruhepuls). Berechnet Sekunde für Sekunde aus deinen Pulsdaten. Fitness (CTL) und Ermüdung (ATL) " +
-                "sind exponentiell gewichtete Mittel über 42 bzw. 7 Tage; Form (TSB) = CTL − ATL. Monotonie = Ø Tageslast / Standardabweichung " +
-                "(Foster 1998). Trainings ohne Puls werden aus Sportart und Dauer geschätzt."
+                "sind exponentiell gewichtete Mittel über 42 bzw. 7 Tage; Form (TSB) = CTL − ATL. Belastungssteigerung (ACWR) = akute ÷ " +
+                "chronische Belastung als exponentiell gewichtete Mittel über 7 bzw. 28 Tage (Williams et al. 2017) – frische Trainings zählen " +
+                "stärker als ältere. Einordnung: < 0,8 weniger als gewohnt, 0,8–1,1 wie gewohnt, 1,1–1,3 kontrollierter Aufbau, 1,3–1,5 starke " +
+                "Steigerung, > 1,5 Belastungssprung mit erhöhtem Verletzungsrisiko (Gabbett 2016). Monotonie = Ø Tageslast / Standardabweichung " +
+                "(Foster 1998), nur ab 3 Trainingstagen pro Woche. Einordnung einer Einheit: < 40 leicht, 40–80 moderat, 80–130 fordernd, " +
+                "130–200 hart, > 200 sehr hart. Trainings ohne Puls werden aus Sportart und Dauer geschätzt."
         MetricKey.VO2MAX ->
             "Priorität: 1) VO2max-Messung der Uhr (falls über Health Connect verfügbar). 2) Aus deinen Läufen: ACSM-Laufgleichung " +
                 "(VO2 = 3,5 + 0,2 × Geschwindigkeit in m/min) und Herzfrequenzreserve (Swain & Leutholtz 1997), Median der letzten 5 Läufe. " +

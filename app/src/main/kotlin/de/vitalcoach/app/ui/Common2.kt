@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import de.vitalcoach.core.ForecastReport
 import de.vitalcoach.core.ForecastScenario
 import de.vitalcoach.core.Fmt
+import de.vitalcoach.core.LoadReport
 import de.vitalcoach.core.Provenance
 import de.vitalcoach.core.Tone
 
@@ -159,5 +161,40 @@ fun ForecastTable(f: ForecastReport, scenarios: List<ForecastScenario> = Forecas
                 }
             }
         }
+    }
+}
+
+/** „Das heißt für dich“: kurze Klartext-Einordnung direkt unter einer Kennzahl. */
+@Composable
+fun MeaningBox(text: String, color: Color = Palette.Blue) {
+    if (text.isBlank()) return
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(color.copy(alpha = 0.08f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Icon(Icons.Filled.Lightbulb, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(text, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/** Farbe je Intensitätsstufe einer Einheit (0 = leicht … 4 = sehr hart), passend zu den Pulszonen-Farben. */
+fun intensityColor(step: Int): Color = Palette.Zones[(step + 1).coerceIn(1, 5)]
+
+/** Wochenvergleich als Balken: diese Woche, Ø der letzten 4 Wochen und Ø der 2 Monate davor. */
+@Composable
+fun WeekCompareBars(l: LoadReport) {
+    val rows = listOfNotNull(
+        Triple("Diese Woche", l.weekLoad, Palette.Teal),
+        Triple("Ø pro Woche · letzte 4 Wochen", l.weekAvg28, Palette.Blue),
+        l.weekAvgBefore?.let { Triple("Ø pro Woche · 1–3 Monate davor", it, Palette.Neutral) },
+    )
+    val max = rows.maxOf { it.second }.coerceAtLeast(1.0)
+    Column {
+        rows.forEach { (label, v, c) -> LabeledBar(label, (v / max).toFloat(), Fmt.int(v), c) }
     }
 }

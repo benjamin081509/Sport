@@ -34,6 +34,7 @@ import de.vitalcoach.core.AnalysisResult
 import de.vitalcoach.core.Coach
 import de.vitalcoach.core.Explain
 import de.vitalcoach.core.Fmt
+import de.vitalcoach.core.Meaning
 import de.vitalcoach.core.MetricKey
 import de.vitalcoach.core.Score
 
@@ -330,10 +331,17 @@ fun WorkoutDetailScreen(startEpochSec: Long, r: AnalysisResult?, vm: MainViewMod
                 }
                 w.avgHr?.let { KeyValue("Ø Puls", "${Fmt.int(it)} bpm") }
                 w.maxHr?.let { KeyValue("Max. Puls", "$it bpm") }
-                KeyValue("Belastung (TRIMP)", Fmt.int(w.trimp) + if (w.estimated) " (geschätzt)" else "")
+                val lvl = Meaning.sessionLevel(w.trimp)
+                KeyValue(
+                    "Trainingspunkte (TRIMP)",
+                    Fmt.int(w.trimp) + " · " + lvl.label + if (w.estimated) " (geschätzt)" else "",
+                    intensityColor(lvl.step),
+                )
                 w.workout.activeKcal?.let { KeyValue("Aktive Kalorien", "${Fmt.int(it)} kcal") }
                 w.vo2Estimate?.let { KeyValue("VO2max-Schätzung", Fmt.num(it, 1)) }
                 KeyValue("Charakter", w.focus)
+                Spacer(Modifier.height(10.dp))
+                MeaningBox(Meaning.session(w, r), intensityColor(lvl.step))
             }
         }
         if (!w.estimated) {

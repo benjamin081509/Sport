@@ -36,8 +36,8 @@ import de.vitalcoach.app.UiState
 import de.vitalcoach.core.AnalysisResult
 import de.vitalcoach.core.Coach
 import de.vitalcoach.core.Fmt
+import de.vitalcoach.core.Meaning
 import de.vitalcoach.core.MetricKey
-import de.vitalcoach.core.Tone
 import de.vitalcoach.core.WorkoutAnalysis
 import java.time.DayOfWeek
 import java.time.temporal.TemporalAdjusters
@@ -64,12 +64,29 @@ fun TrainingScreen(state: UiState, vm: MainViewModel, padding: PaddingValues) {
         item { PerformanceLinkCard(r, vm) }
         item { CoachCard(Coach.training(r), title = "Coach · Training") }
         item { Text("Letzte Trainings", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 4.dp)) }
+        // Sehr kurze Aktivitäten (oft automatisch erkannte Mini-Radfahrten o. Ä.) ausblenden – sie zählen trotzdem zur Belastung.
+        val shown = r.workouts.filter { it.durationMin >= MIN_LIST_MIN }.take(30)
+        val oldestShown = shown.lastOrNull()?.workout?.start
+        val hidden = r.workouts.count { it.durationMin < MIN_LIST_MIN && (oldestShown == null || !it.workout.start.isBefore(oldestShown)) }
         if (r.workouts.isEmpty()) {
             item { Text("Noch keine Trainings aufgezeichnet.", style = MaterialTheme.typography.bodyMedium) }
+        } else {
+            item { MeaningBox(Meaning.trimpLegend(r.profile.sex)) }
         }
-        items(minOf(r.workouts.size, 30)) { i -> WorkoutRow(r.workouts[i], vm) }
+        items(shown.size) { i -> WorkoutRow(shown[i], vm) }
+        if (hidden > 0) {
+            item {
+                Text(
+                    "$hidden kurze Aktivitäten unter ${MIN_LIST_MIN.toInt()} min ausgeblendet (z. B. automatisch erkannte Mini-Radfahrten) – sie zählen trotzdem zur Belastung.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
+
+private const val MIN_LIST_MIN = 10.0
 
 @Composable
 private fun RecommendationCard(r: AnalysisResult, vm: MainViewModel) {
@@ -124,6 +141,8 @@ private fun LoadCard(r: AnalysisResult, vm: MainViewModel) {
         )
         Spacer(Modifier.height(6.dp))
         Legend(listOf("Fitness (42 T)" to Palette.Blue, "Ermüdung (7 T)" to Palette.Orange))
+        Spacer(Modifier.height(10.dp))
+        MeaningBox(Meaning.form(l))
     }
 }
 
@@ -131,24 +150,46 @@ private fun LoadCard(r: AnalysisResult, vm: MainViewModel) {
 private fun AcwrCard(r: AnalysisResult) {
     val l = r.load
     val acwr = l.acwr
-    SectionCard(title = "Belastungssteigerung", icon = Icons.Filled.Speed) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            SemiGauge(
-                acwr?.let { ((it - 0.5) / 1.5).toFloat() },
-                listOf(Palette.Light, Palette.Good, Palette.Good, Palette.Warn, Palette.Bad, Palette.Bad),
-                acwr?.let { Fmt.num(it, 2) } ?: "–",
-                "ACWR · ${l.status.label}",
-            )
+    SectionCard(title = "Belastungssteigerung (ACWR)", icon = Icons.Filled.Speed) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(acwr?.let { Fmt.num(it, 2) } ?: "–", style = MaterialTheme.typography.displaySmall, color = l.status.tone.color())
+            Spacer(Modifier.width(14.dp))
+            Column {
+                Text(l.status.label, style = MaterialTheme.typography.titleMedium, color = l.status.tone.color())
+                Text("ACWR = aktuell ÷ gewohnt", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(12.dp))
+        ScaleBar(
+            listOf(
+                "< 0,8\nweniger" to Palette.Light,
+                "0,8–1,1\ngewohnt" to Palette.Ok,
+                "1,1–1,3\nAufbau" to Palette.Good,
+                "1,3–1,5\nstark" to Palette.Warn,
+                "> 1,5\nSprung" to Palette.Bad,
+            ),
+            acwr?.let { acwrPosition(it) },
+        )
+        Spacer(Modifier.height(12.dp))
         StatRow(
             listOf(
-                Triple(Fmt.int(l.weekLoad), "7 Tage", null),
-                Triple(Fmt.int(l.prevWeekLoad), "Vorwoche", null),
-                Triple(l.monotony?.let { Fmt.num(it, 1) } ?: "–", "Monotonie", l.monotony?.let { if (it > 2) Palette.Bad else if (it > 1.5) Palette.Warn else Palette.Good }),
+                Triple(l.acuteWeek?.let { Fmt.int(it) } ?: "–", "aktuell / Woche", Palette.Teal),
+                Triple(l.chronicWeek?.let { Fmt.int(it) } ?: "–", "gewohnt / Woche", Palette.Blue),
+                Triple("${l.trainingDays7}/7", "Trainingstage", null),
             ),
         )
+        Spacer(Modifier.height(10.dp))
+        MeaningBox(Meaning.acwr(l), l.status.tone.color())
     }
+}
+
+/** Position auf der 5-teiligen ACWR-Skala (gleich breite Abschnitte mit den Grenzen 0,8 / 1,1 / 1,3 / 1,5). */
+private fun acwrPosition(a: Double): Float {
+    val bounds = listOf(0.4, 0.8, 1.1, 1.3, 1.5, 1.9)
+    val v = a.coerceIn(bounds.first(), bounds.last())
+    val i = (0 until 5).firstOrNull { v <= bounds[it + 1] } ?: 4
+    val within = (v - bounds[i]) / (bounds[i + 1] - bounds[i])
+    return ((i + within) / 5.0).toFloat()
 }
 
 @Composable
@@ -279,8 +320,9 @@ fun WorkoutRow(w: WorkoutAnalysis, vm: MainViewModel) {
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(Fmt.int(w.trimp), style = MaterialTheme.typography.titleLarge, color = loadTone(w, r = null).color())
-                Text("TRIMP", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val lvl = Meaning.sessionLevel(w.trimp)
+                Text(Fmt.int(w.trimp), style = MaterialTheme.typography.titleLarge, color = intensityColor(lvl.step))
+                Text(lvl.label, style = MaterialTheme.typography.labelMedium, color = intensityColor(lvl.step))
             }
         }
         if (!w.estimated && w.zoneMin.sum() > 0) {
@@ -288,11 +330,4 @@ fun WorkoutRow(w: WorkoutAnalysis, vm: MainViewModel) {
             StackedBar(w.zoneMin.mapIndexed { i, m -> m to Palette.Zones[i] }, height = 8.dp)
         }
     }
-}
-
-@Suppress("UNUSED_PARAMETER")
-private fun loadTone(w: WorkoutAnalysis, r: AnalysisResult?): Tone = when {
-    w.focus.contains("hart") -> Tone.BAD
-    w.focus.contains("Tempo") -> Tone.WARN
-    else -> Tone.NEUTRAL
 }
