@@ -23,6 +23,14 @@
     <uses-permission android:name="android.permission.health.READ_BLOOD_PRESSURE" />
     <uses-permission android:name="android.permission.health.READ_POWER" />
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
+    <!-- Für die Morgen-/Abend-Zusammenfassung: Daten auch im Hintergrund lesen -->
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
+
+    <!-- Tägliche Zusammenfassungen als Benachrichtigung, pünktlich auch im Ruhemodus -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
 
     <queries>
         <package android:name="com.google.android.apps.healthdata" />
@@ -50,6 +58,18 @@
                 <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
             </intent-filter>
         </activity>
+
+        <!-- Weckt die App für die Zusammenfassungen und plant sie nach Neustart/Update neu -->
+        <receiver
+            android:name=".notify.DigestAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Datenschutz-Erklärung für Health Connect (Android 14+) – ohne diesen Eintrag zeigt Android keinen Berechtigungsdialog -->
         <activity-alias

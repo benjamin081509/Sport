@@ -92,6 +92,7 @@ fun TodayScreen(state: UiState, vm: MainViewModel, padding: PaddingValues, onTab
         if (r.warnings.isNotEmpty()) {
             items(r.warnings.size) { i -> WarningRow(r.warnings[i]) }
         }
+        if (r.energy != null) item { EnergyCard(r) { vm.open(Route.Metric(MetricKey.ENERGY)) } }
         item { BriefingCard(r) }
         item { ForecastMini(r, vm) }
         item { Tiles(r, vm, onTab) }
@@ -145,6 +146,9 @@ private fun Header(state: UiState, vm: MainViewModel) {
 private fun HeroCard(r: AnalysisResult, vm: MainViewModel) {
     val t = r.todayMetrics
     val ready = t?.readiness
+    // Bereitschaft sinkt über den Tag durch Training, Stress und Alltag (Morgenwert bleibt in der Detailansicht).
+    val readyNow = r.energy?.readinessNow ?: ready?.value
+    val readySub = readyNow?.let { v -> readinessLabel(v) + if (ready != null && ready.value - v >= 3) " · früh ${ready.value}" else "" }
     val rec = t?.recovery
     val sleep = r.sleep.lastNight
     Box(
@@ -157,24 +161,28 @@ private fun HeroCard(r: AnalysisResult, vm: MainViewModel) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ConcentricRings(
-                    listOf(ready?.value to Color.White, rec?.value to Mint, sleep?.score to Lavender),
+                    listOf(readyNow to Color.White, rec?.value to Mint, sleep?.score to Lavender),
                     size = 140.dp,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${ready?.value ?: "–"}", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("${readyNow ?: "–"}", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold)
                         Text("bereit", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
                     }
                 }
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    HeroLegend("Bereitschaft", ready?.value, ready?.value?.let { readinessLabel(it) }, Color.White) { vm.open(Route.Metric(MetricKey.READINESS)) }
+                    HeroLegend("Bereitschaft", readyNow, readySub, Color.White) { vm.open(Route.Metric(MetricKey.READINESS)) }
                     HeroLegend("Erholung", rec?.value, rec?.value?.let { recoveryLabel(it) }, Mint) { vm.open(Route.Metric(MetricKey.RECOVERY)) }
                     HeroLegend("Schlaf", sleep?.score, sleep?.let { Fmt.duration(it.asleepMin) }, Lavender) { vm.open(Route.Metric(MetricKey.SLEEP)) }
                 }
             }
+            r.energy?.let { e ->
+                Spacer(Modifier.height(14.dp))
+                HeroEnergyBar(e.now, e.label)
+            }
             val rcm = r.load.recommendation
             if (rcm != null) {
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(10.dp))
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -195,6 +203,34 @@ private fun HeroCard(r: AnalysisResult, vm: MainViewModel) {
                 }
             }
         }
+    }
+}
+
+/** Schmale Energie-Anzeige im Kopfbereich. */
+@Composable
+private fun HeroEnergyBar(value: Int, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Filled.BatteryChargingFull, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("Energie $value", style = MaterialTheme.typography.titleSmall, color = Color.White)
+        Spacer(Modifier.width(10.dp))
+        Box(
+            Modifier
+                .weight(1f)
+                .height(10.dp)
+                .clip(RoundedCornerShape(5.dp))
+                .background(Color.White.copy(alpha = 0.18f)),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(value.coerceIn(0, 100) / 100f)
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(heroToneColor(de.vitalcoach.core.Energy.label(value).second)),
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
     }
 }
 

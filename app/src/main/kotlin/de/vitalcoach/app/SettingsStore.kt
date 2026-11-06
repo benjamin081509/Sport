@@ -2,9 +2,11 @@ package de.vitalcoach.app
 
 import android.content.Context
 import de.vitalcoach.core.DailySnapshot
+import de.vitalcoach.core.DigestContent
 import de.vitalcoach.core.Nicotine
 import de.vitalcoach.core.Sex
 import de.vitalcoach.core.SnapshotCodec
+import de.vitalcoach.core.Tone
 import java.io.File
 import de.vitalcoach.core.UserProfile
 import de.vitalcoach.core.ai.ClaudeModel
@@ -68,6 +70,44 @@ class SettingsStore(context: Context) {
     var lastAiQuestion: String?
         get() = prefs.getString("aiQuestion", null)
         set(v) = prefs.edit().putString("aiQuestion", v).apply()
+
+    // ---------- Tägliche Zusammenfassungen ----------
+
+    fun digestEnabled(kind: String): Boolean = prefs.getBoolean("digestOn_$kind", true)
+    fun setDigestEnabled(kind: String, on: Boolean) = prefs.edit().putBoolean("digestOn_$kind", on).apply()
+
+    /** Uhrzeit in Minuten nach Mitternacht. */
+    fun digestMinutes(kind: String, default: Int): Int = prefs.getInt("digestMin_$kind", default)
+    fun setDigestMinutes(kind: String, minutes: Int) = prefs.edit().putInt("digestMin_$kind", minutes).apply()
+
+    var askedNotifications: Boolean
+        get() = prefs.getBoolean("askedNotif", false)
+        set(v) = prefs.edit().putBoolean("askedNotif", v).apply()
+
+    var askedBackgroundAccess: Boolean
+        get() = prefs.getBoolean("askedBg", false)
+        set(v) = prefs.edit().putBoolean("askedBg", v).apply()
+
+    /** Zuletzt in der App berechnete Zusammenfassung – Rückfall, falls Lesen im Hintergrund nicht möglich ist. */
+    fun saveDigest(kind: String, c: DigestContent, atMillis: Long, complete: Boolean) {
+        val enc = listOf(c.title, c.text, c.tone.name, if (complete) "1" else "0", c.lines.joinToString(LINE_SEP)).joinToString(FIELD_SEP)
+        prefs.edit().putString("digest_$kind", enc).putLong("digestAt_$kind", atMillis).apply()
+    }
+
+    /** Gespeicherte Zusammenfassung, Zeitpunkt und ob sie vollständig war (bei „Morgen“: Schlaf der letzten Nacht enthalten). */
+    fun loadDigest(kind: String): Triple<DigestContent, Long, Boolean>? {
+        val enc = prefs.getString("digest_$kind", null) ?: return null
+        val f = enc.split(FIELD_SEP)
+        if (f.size < 5) return null
+        val tone = runCatching { Tone.valueOf(f[2]) }.getOrDefault(Tone.NEUTRAL)
+        val lines = f[4].split(LINE_SEP).filter { it.isNotBlank() }
+        return Triple(DigestContent(f[0], f[1], lines, tone), prefs.getLong("digestAt_$kind", 0L), f[3] == "1")
+    }
+
+    private companion object {
+        const val FIELD_SEP = "\u001E"
+        const val LINE_SEP = "\u001F"
+    }
 }
 
 /** Lokaler Verlaufsspeicher für Tageswerte (für Langzeit-Trends). */

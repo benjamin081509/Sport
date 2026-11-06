@@ -21,6 +21,7 @@ enum class MetricKey(val title: String) {
     BASELINES("Persönliche Normalwerte"),
     CORRELATIONS("Zusammenhänge"),
     TRENDS("Langzeit-Trends"),
+    ENERGY("Energie"),
 }
 
 /** Erklärungen „Was ist das?“ und „So wird es berechnet“ – in einfacher Sprache mit Quellen. */
@@ -29,7 +30,7 @@ object Explain {
     /** Herkunft des Hauptwerts einer Kennzahl. */
     fun provenance(key: MetricKey): Provenance = when (key) {
         MetricKey.ACTIVITY, MetricKey.VITALS, MetricKey.BODY -> Provenance.MEASURED
-        MetricKey.VO2MAX, MetricKey.REGENERATION, MetricKey.STRESS, MetricKey.FORECAST, MetricKey.PERFORMANCE -> Provenance.ESTIMATED
+        MetricKey.VO2MAX, MetricKey.REGENERATION, MetricKey.STRESS, MetricKey.FORECAST, MetricKey.PERFORMANCE, MetricKey.ENERGY -> Provenance.ESTIMATED
         else -> Provenance.CALCULATED
     }
 
@@ -92,6 +93,9 @@ object Explain {
                 "späten Trainings schlechter schläfst. Zusammenhang bedeutet nicht automatisch Ursache."
         MetricKey.TRENDS ->
             "Langzeit-Trends zeigen, wie sich deine Werte über Monate entwickeln – das sagt mehr über deine Gesundheit aus als einzelne Tage."
+        MetricKey.ENERGY ->
+            "Die Energie zeigt wie ein Akku, wie viel Kraft du gerade noch hast. Morgens wird sie durch Schlaf und Erholung aufgeladen, " +
+                "über den Tag verbrauchen Training, Stress und Alltagsbewegung Energie – deshalb sinkt auch deine Trainingsbereitschaft bis zum Abend."
     }
 
     fun how(key: MetricKey): String = when (key) {
@@ -179,5 +183,12 @@ object Explain {
         MetricKey.TRENDS ->
             "Wochenmittelwerte über bis zu 52 Wochen, Vergleich der letzten 30 mit den 30 Tagen davor, der letzten 90 mit den 90 davor und mit dem " +
                 "Wert vor einem Jahr. Ältere Tageswerte speichert die App lokal auf deinem Handy."
+        MetricKey.ENERGY ->
+            "Angelehnt an das Prinzip von Garmin Body Battery (Firstbeat), aber mit offenem Rechenweg: Startwert beim Aufwachen = dein " +
+                "Erholungswert. Danach in 15-Minuten-Schritten: Wachzeit −1,2 Punkte/h; Stress in Ruhephasen (Stunden mit < 100 Schritten) " +
+                "bis −3,5 Punkte/h, proportional zum Stresswert aus Puls über Ruhepuls; Bewegung im Alltag und Training −0,2 Punkte je " +
+                "Trainingspunkt (TRIMP); sehr entspannte Ruhe (Stresswert < 10) lädt bis +2 Punkte/h auf. Die Trainingsbereitschaft sinkt " +
+                "über den Tag um die Hälfte der Belastung durch Training, Stress und Alltag (nicht durch die reine Wachzeit). Ohne HRV-Messung " +
+                "tagsüber ist das eine Schätzung – aussagekräftig ist vor allem der Verlauf."
     }
 }

@@ -7,6 +7,10 @@ import androidx.lifecycle.viewModelScope
 import de.vitalcoach.core.AnalysisResult
 import de.vitalcoach.core.Analyzer
 import de.vitalcoach.core.DemoData
+import de.vitalcoach.core.Digest
+import de.vitalcoach.app.notify.DigestKind
+import de.vitalcoach.app.notify.DigestScheduler
+import de.vitalcoach.app.notify.Notifier
 import de.vitalcoach.core.MetricKey
 import de.vitalcoach.core.SnapshotCodec
 import de.vitalcoach.core.UserProfile
@@ -57,6 +61,11 @@ data class UiState(
     val model: ClaudeModel = ClaudeModel.OPUS,
     val ai: AiState = AiState.Idle,
     val lastRefresh: Instant? = null,
+    // Benachrichtigungen
+    val notificationsAllowed: Boolean = false,
+    val backgroundAccess: HealthConnectRepository.BackgroundAccess? = null,
+    val digestOn: Map<DigestKind, Boolean> = emptyMap(),
+    val digestMinutes: Map<DigestKind, Int> = emptyMap(),
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -72,6 +81,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             apiKey = store.apiKey,
             model = store.model,
             ai = store.lastAiText?.let { AiState.Done(it, Instant.ofEpochMilli(store.lastAiTime), store.lastAiQuestion, false) } ?: AiState.Idle,
+            notificationsAllowed = Notifier.canNotify(app),
+            digestOn = DigestKind.entries.associateWith { store.digestEnabled(it.name) },
+            digestMinutes = DigestKind.entries.associateWith { store.digestMinutes(it.name, it.defaultMinutes) },
         ),
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -111,6 +123,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val availability = repo.availability()
                 val granted = if (availability == HealthConnectRepository.Availability.AVAILABLE) repo.grantedPermissions() else emptySet()
                 val hasCore = granted.containsAll(repo.corePermissions)
+                val bg = if (availability == HealthConnectRepository.Availability.AVAILABLE) repo.backgroundAccess(granted) else null
                 val s = _state.value
                 val result = withContext(Dispatchers.Default) {
                     when {
@@ -131,10 +144,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         else -> null
                     }
                 }
+                if (result != null) cacheDigests(result)
                 _state.update {
                     it.copy(
                         availability = availability,
                         hasPermissions = hasCore,
+                        backgroundAccess = bg,
+                        notificationsAllowed = Notifier.canNotify(getApplication<Application>()),
                         grantedCount = granted.count { p -> p in repo.readPermissions },
                         totalPermissions = repo.readPermissions.size,
                         result = result,
@@ -148,6 +164,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    /** Zusammenfassungen für den Fall merken, dass Health Connect im Hintergrund nicht gelesen werden darf. */
+    private fun cacheDigests(r: AnalysisResult) {
+        val now = System.currentTimeMillis()
+        store.saveDigest(DigestKind.MORNING.name, Digest.morning(r), now, Digest.hasLastNight(r))
+        store.saveDigest(DigestKind.EVENING.name, Digest.evening(r), now, true)
+    }
+
+    fun refreshNotificationStatus() {
+        _state.update { it.copy(notificationsAllowed = Notifier.canNotify(getApplication<Application>())) }
+    }
+
+    fun setDigestEnabled(kind: DigestKind, on: Boolean) {
+        store.setDigestEnabled(kind.name, on)
+        DigestScheduler.schedule(getApplication<Application>(), kind)
+        _state.update { it.copy(digestOn = it.digestOn + (kind to on)) }
+    }
+
+    fun setDigestTime(kind: DigestKind, minutes: Int) {
+        store.setDigestMinutes(kind.name, minutes)
+        DigestScheduler.schedule(getApplication<Application>(), kind)
+        _state.update { it.copy(digestMinutes = it.digestMinutes + (kind to minutes)) }
+    }
+
+    /** Sendet die Zusammenfassung sofort (zum Ausprobieren). */
+    fun testDigest(kind: DigestKind) = DigestScheduler.runNow(getApplication<Application>(), kind, test = true)
 
     fun saveProfile(p: UserProfile) {
         store.profile = p

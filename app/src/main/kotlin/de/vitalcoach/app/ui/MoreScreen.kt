@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Sync
@@ -43,6 +44,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -52,6 +54,7 @@ import de.vitalcoach.app.HealthConnectRepository
 import de.vitalcoach.app.MainViewModel
 import de.vitalcoach.app.Route
 import de.vitalcoach.app.UiState
+import de.vitalcoach.app.notify.DigestKind
 import de.vitalcoach.core.Nicotine
 import de.vitalcoach.core.Sex
 import de.vitalcoach.core.UserProfile
@@ -103,6 +106,7 @@ fun SettingsScreen(state: UiState, vm: MainViewModel, actions: AppActions) {
         item {
             DataSourceCard(state, vm, actions.requestPermissions, actions.openHealthConnect, actions.openSamsungHealth, actions.installHealthConnect)
         }
+        item { NotificationCard(state, vm, actions) }
         item { ProfileCard(state.profile) { vm.saveProfile(it) } }
         item { AiSettingsCard(state, vm) }
         item {
@@ -181,6 +185,81 @@ fun DataSourceCard(
             }
             Switch(checked = state.demoMode, onCheckedChange = { vm.setDemo(it) })
         }
+    }
+}
+
+/** Morgen- und Abend-Zusammenfassung als Benachrichtigung. */
+@Composable
+fun NotificationCard(state: UiState, vm: MainViewModel, actions: AppActions) {
+    SectionCard(title = "Benachrichtigungen", icon = Icons.Filled.Notifications) {
+        StatusLine(
+            ok = state.notificationsAllowed,
+            text = if (state.notificationsAllowed) "Benachrichtigungen erlaubt" else "Benachrichtigungen sind noch nicht erlaubt",
+        )
+        if (!state.notificationsAllowed) {
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = actions.requestNotifications, modifier = Modifier.fillMaxWidth()) { Text("Benachrichtigungen erlauben") }
+        }
+        if (!state.demoMode) {
+            Spacer(Modifier.height(10.dp))
+            when (state.backgroundAccess) {
+                HealthConnectRepository.BackgroundAccess.GRANTED ->
+                    StatusLine(true, "Zugriff im Hintergrund erlaubt – Zusammenfassungen mit aktuellen Werten")
+                HealthConnectRepository.BackgroundAccess.NOT_GRANTED -> {
+                    StatusLine(false, "Für aktuelle Werte: in Health Connect „Zugriff im Hintergrund“ erlauben")
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = actions.requestPermissions, modifier = Modifier.fillMaxWidth()) { Text("Hintergrund-Zugriff erlauben") }
+                }
+                HealthConnectRepository.BackgroundAccess.UNSUPPORTED ->
+                    StatusLine(false, "Health Connect erlaubt auf diesem Handy kein Lesen im Hintergrund – die Zusammenfassung nutzt den letzten Stand aus der App")
+                null -> Unit
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        DigestKind.entries.forEach { kind ->
+            DigestRow(
+                kind = kind,
+                on = state.digestOn[kind] ?: true,
+                minutes = state.digestMinutes[kind] ?: kind.defaultMinutes,
+                onToggle = { vm.setDigestEnabled(kind, it) },
+                onTime = { vm.setDigestTime(kind, it) },
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { vm.testDigest(DigestKind.MORNING) }, modifier = Modifier.weight(1f), enabled = state.notificationsAllowed) { Text("Morgen testen") }
+            OutlinedButton(onClick = { vm.testDigest(DigestKind.EVENING) }, modifier = Modifier.weight(1f), enabled = state.notificationsAllowed) { Text("Abend testen") }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Morgens wartet die App bis zu 1 Stunde, falls Samsung Health deinen Schlaf noch nicht übertragen hat.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun DigestRow(kind: DigestKind, on: Boolean, minutes: Int, onToggle: (Boolean) -> Unit, onTime: (Int) -> Unit) {
+    val context = LocalContext.current
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(kind.label, style = MaterialTheme.typography.titleSmall)
+            Text(
+                if (kind == DigestKind.MORNING) "Schlaf, Erholung, Empfehlung für heute" else "Energie, Training, Schritte, Stress",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(
+            onClick = {
+                android.app.TimePickerDialog(context, { _, h, m -> onTime(h * 60 + m) }, minutes / 60, minutes % 60, true).show()
+            },
+            enabled = on,
+        ) {
+            Text(String.format(java.util.Locale.GERMANY, "%02d:%02d", minutes / 60, minutes % 60), style = MaterialTheme.typography.titleMedium)
+        }
+        Switch(checked = on, onCheckedChange = onToggle)
     }
 }
 

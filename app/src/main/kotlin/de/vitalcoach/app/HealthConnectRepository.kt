@@ -89,7 +89,24 @@ class HealthConnectRepository(private val context: Context) {
     suspend fun permissionsToRequest(): Set<String> {
         val all = readPermissions.toMutableSet()
         if (historyFeatureAvailable()) all += HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY
+        if (backgroundFeatureAvailable()) all += PERMISSION_BACKGROUND
         return all
+    }
+
+    /** Ob Health Connect auf diesem Gerät Lesen im Hintergrund (für die Benachrichtigungen) unterstützt. */
+    suspend fun backgroundFeatureAvailable(): Boolean = try {
+        client.features.getFeatureStatus(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_IN_BACKGROUND) ==
+            HealthConnectFeatures.FEATURE_STATUS_AVAILABLE
+    } catch (t: Throwable) {
+        false
+    }
+
+    enum class BackgroundAccess { GRANTED, NOT_GRANTED, UNSUPPORTED }
+
+    suspend fun backgroundAccess(granted: Set<String>): BackgroundAccess = when {
+        !backgroundFeatureAvailable() -> BackgroundAccess.UNSUPPORTED
+        PERMISSION_BACKGROUND in granted -> BackgroundAccess.GRANTED
+        else -> BackgroundAccess.NOT_GRANTED
     }
 
     private suspend fun historyFeatureAvailable(): Boolean = try {
@@ -339,6 +356,9 @@ class HealthConnectRepository(private val context: Context) {
 
     companion object {
         private const val TAG = "VitalCoach"
+
+        /** Health-Connect-Berechtigung für das Lesen im Hintergrund (Benachrichtigungen). */
+        const val PERMISSION_BACKGROUND = "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND"
         private val DISTANCE_SPORTS = setOf(
             SportType.RUNNING, SportType.WALKING, SportType.HIKING, SportType.CYCLING, SportType.SWIMMING, SportType.ROWING,
         )

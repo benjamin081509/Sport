@@ -50,6 +50,7 @@ class AppActions(
     val openHealthConnect: () -> Unit,
     val openSamsungHealth: () -> Unit,
     val installHealthConnect: () -> Unit,
+    val requestNotifications: () -> Unit = {},
 )
 
 @Composable

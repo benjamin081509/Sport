@@ -92,4 +92,5 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.health.connect)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.work.runtime)
 }

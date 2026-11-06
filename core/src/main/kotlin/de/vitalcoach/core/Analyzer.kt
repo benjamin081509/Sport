@@ -389,13 +389,15 @@ object Analyzer {
         val stress = stressReport(days, stressHourSum, stressHourCount, stressRest, stressHigh, stressTotal, restRef, hrMax, data.hourlySteps.isNotEmpty())
         val performance = performanceReport(days, workouts, best20ByWorkout, fitness, zone, today, profile)
         val warnings = warnings(days, load, sleep, fitness)
+        val energy = energyReport(days, nightByDate, hr, workoutsByDate, hourlyMap, hourlyDates, restRef, hrMax, sex, now, today, zone)
+        val loadNow = energy?.readinessNow?.let { rn -> load.copy(recommendation = recommend(days.lastOrNull(), sex, rn)) } ?: load
         val base = AnalysisResult(
             today = today,
             profile = profile,
             days = days,
             workouts = regenInfos.map { (w, h) -> w.copy(recoveryH = h) }.sortedByDescending { it.workout.start },
             fitness = fitness,
-            load = load,
+            load = loadNow,
             sleep = sleep,
             activity = activity,
             warnings = warnings,
@@ -404,6 +406,7 @@ object Analyzer {
             generatedAt = now,
             zone = zone,
             regeneration = regeneration,
+            energy = energy,
             heart = heart,
             stress = stress,
             performance = performance,
@@ -684,6 +687,59 @@ object Analyzer {
         )
     }
 
+    private fun energyReport(
+        days: List<DayMetrics>,
+        nightByDate: Map<LocalDate, SleepNight>,
+        hr: List<HeartRateSample>,
+        workoutsByDate: Map<LocalDate, List<WorkoutAnalysis>>,
+        hourlyMap: Map<Long, Long>,
+        hourlyDates: Set<LocalDate>,
+        restRef: Double,
+        hrMax: Int,
+        sex: Sex?,
+        now: Instant,
+        today: LocalDate,
+        zone: ZoneId,
+    ): EnergyReport? {
+        fun sim(day: DayMetrics): Pair<Instant, Energy.Sim>? {
+            val e0 = day.recovery?.value ?: return null
+            val wake = day.sleep?.end ?: day.date.atTime(7, 0).atZone(zone).toInstant()
+            val bed = nightByDate[day.date.plusDays(1)]?.start ?: day.date.atTime(23, 0).atZone(zone).toInstant()
+            val end = minOf(bed, now)
+            val ws = (workoutsByDate[day.date].orEmpty() + workoutsByDate[day.date.minusDays(1)].orEmpty())
+                .filter { it.workout.end.isAfter(wake) && it.workout.start.isBefore(end) }
+            val samples = if (end.isAfter(wake)) hr.sliceByTime(wake, end) { it.time } else emptyList()
+            val steps = if (day.date in hourlyDates) hourlyMap else null
+            return wake to Energy.simulate(e0.toDouble(), wake, end, samples, ws, steps, restRef, hrMax, sex)
+        }
+        val t = days.lastOrNull()?.takeIf { it.date == today } ?: return null
+        val (wake, s) = sim(t) ?: return null
+        val history = days.takeLast(8).mapNotNull { d ->
+            val r = if (d === t) s else sim(d)?.second
+            r?.let { EnergyDay(d.date, it.curve.first().value.roundToInt(), it.end.roundToInt()) }
+        }
+        val nowV = s.end.roundToInt()
+        val (label, tone) = Energy.label(nowV)
+        val readinessMorning = t.readiness?.value
+        return EnergyReport(
+            now = nowV,
+            morning = s.curve.first().value.roundToInt(),
+            wakeTime = wake,
+            curve = s.curve,
+            drainAwake = s.awake,
+            drainStress = s.stress,
+            drainEveryday = s.everyday,
+            drainTraining = s.training,
+            charge = s.charge,
+            readinessMorning = readinessMorning,
+            readinessNow = Energy.readinessNow(readinessMorning, s),
+            history = history,
+            label = label,
+            tone = tone,
+            hasDayHeartRate = s.hadHeartRate,
+        )
+    }
+
     private fun loadReport(
         days: List<DayMetrics>,
         workouts: List<WorkoutAnalysis>,
@@ -747,8 +803,10 @@ object Analyzer {
         )
     }
 
-    private fun recommend(t: DayMetrics?, sex: Sex?): TrainingRecommendation? {
-        val r = t?.readiness?.value ?: return null
+    /** Empfehlung aus der Trainingsbereitschaft – tagsüber aus dem aktuellen Wert [readinessNow] (sinkt durch Training, Stress, Alltag). */
+    private fun recommend(t: DayMetrics?, sex: Sex?, readinessNow: Int? = null): TrainingRecommendation? {
+        val r = readinessNow ?: t?.readiness?.value ?: return null
+        t ?: return null
         val base = max(t.ctl, 30.0)
         val z2Rate = HeartMath.trimpPerMinute(0.65, sex)
         fun rec(title: String, text: String, tone: Tone, lo: Double, hi: Double) = TrainingRecommendation(

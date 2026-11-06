@@ -581,6 +581,8 @@ data class AnalysisResult(
     val correlations: List<CorrelationInsight> = emptyList(),
     val briefing: Briefing = Briefing("", emptyList(), emptyList(), emptyList(), Tone.NEUTRAL),
     val trends: List<TrendItem> = emptyList(),
+    /** Energie über den Tag (null, solange heute noch kein Erholungswert vorliegt). */
+    val energy: EnergyReport? = null,
 ) {
     val todayMetrics: DayMetrics? get() = days.lastOrNull()
 }

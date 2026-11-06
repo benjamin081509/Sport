@@ -4,11 +4,12 @@ VitalCoach ist eine Android-App für dein **Samsung Galaxy S23**. Sie liest die 
 
 | Bereich | Was du bekommst |
 |---|---|
-| **Heute** | Erholung, Trainingsbereitschaft, Schlaf-Score, **Tages-Briefing** (wichtigste Veränderungen + mögliche Erklärungen), **Prognose** der Bereitschaft für 1–3 Tage, Frühwarnungen, Kacheln mit Herkunftsangabe |
+| **Heute** | **Energie** über den Tag (wie ein Akku: morgens aus der Erholung, sinkt durch Training, Stress und Alltag), Trainingsbereitschaft *jetzt*, Erholung, Schlaf-Score, **Tages-Briefing** (wichtigste Veränderungen + mögliche Erklärungen), **Prognose** der Bereitschaft für 1–3 Tage, Frühwarnungen, Kacheln mit Herkunftsangabe |
 | **Erholung** | Persönlicher Erholungswert (HRV, Ruhepuls, Schlaf, Atmung, Trainingsbelastung), Regenerationsindex & Erholungsdauer, Ermüdungsindex, Belastungs-/Erholungsverhältnis, Überlastungsindikator, HRV-Trend, Ruhepuls-Abweichung |
 | **Training** | Empfehlung für heute, Fitness/Ermüdung/Form, ACWR, Belastung 7/28/90 Tage, Intensitätsverteilung, Monotonie, Analyse jedes Trainings |
 | **Schlaf** | Schlafbedarf heute Nacht inkl. Bettzeit, persönlicher Schlafbedarf, Schlaf-Konsistenz-Score (SRI), Schlafschuld 7/14 Tage, Effizienz, Phasen, nächtliche Erholung (Pulsabsenkung, Tiefpunkt, HRV, Pulskurve) |
 | **Analysen** | Herzgesundheit (AHA Life's Essential 8), Herz & Kreislauf (Ø Puls, HRV-/Ruhepuls-Trends bis 1 Jahr, Pulserholung HRR, Stabilität, Zonen), Stress-Index, Fitness & Leistung (VO2max, Fitnessalter, aerobe Effizienz, Laktatschwelle, Pace), Bewegung & Alltag (inaktive Zeit, Tagesverteilung, Wochenbilanz, Alltagsbelastung), Langzeit-Trends, persönliche Normalwerte, Zusammenhänge in deinen Daten |
+| **Benachrichtigungen** | Morgens (Standard 7:30) und abends (21:30) eine übersichtliche Zusammenfassung: Schlaf, Erholung, Empfehlung bzw. Energie, Training, Schritte, Stress, Schlafbedarf – Uhrzeiten in den Einstellungen änderbar |
 | **KI-Coach** | Eingebauter Coach (offline, kostenlos) **plus** optional eine ausführliche Analyse durch die KI *Claude*, der du auch eigene Fragen stellen kannst |
 
 Jeder Wert ist gekennzeichnet als **Gemessen** (Originaldaten der Uhr), **Berechnet** (aus mehreren Messwerten) oder **Geschätzt** (Schätzung/Prognose).

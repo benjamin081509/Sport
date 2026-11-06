@@ -39,6 +39,7 @@ import de.vitalcoach.core.Fmt
 import de.vitalcoach.core.Meaning
 import de.vitalcoach.core.MetricKey
 import de.vitalcoach.core.WorkoutAnalysis
+import de.vitalcoach.core.scoreToneOf
 import java.time.DayOfWeek
 import java.time.temporal.TemporalAdjusters
 
@@ -98,10 +99,14 @@ private fun RecommendationCard(r: AnalysisResult, vm: MainViewModel) {
             return@SectionCard
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ScoreRing(ready.value, "", ready.tone, size = 88.dp, caption = readinessLabel(ready.value))
+            val rv = r.energy?.readinessNow ?: ready.value
+            ScoreRing(rv, "", scoreToneOf(rv), size = 88.dp, caption = readinessLabel(rv))
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(rec.title, style = MaterialTheme.typography.titleLarge, color = rec.tone.color())
+                if (ready.value - rv >= 3) {
+                    Text("Bereitschaft jetzt $rv (heute früh ${ready.value})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
         if (rec.targetLoadHigh > 0) {

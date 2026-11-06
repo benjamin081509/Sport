@@ -109,6 +109,13 @@ object AiReport {
         appendLine("# Regeneration")
         appendLine("Regenerationsindex ${g.regenerationIndex ?: "–"} %, Rest-Erholung ${Fmt.int(g.remainingHours)} h, Ermüdungsindex ${g.fatigueIndex ?: "–"} (${g.fatigueLabel}), Belastungs-/Erholungsverhältnis ${g.balance?.let { Fmt.num(it, 2) } ?: "–"} (${g.balanceLabel})")
         appendLine("Belastung 7/28/90 Tage: ${Fmt.int(g.load7)}/${Fmt.int(g.load28)}/${Fmt.int(g.load90)} TRIMP; Überlastung: ${g.overloadLabel}" + if (g.overloadSignals.isNotEmpty()) " (${g.overloadSignals.joinToString("; ")})" else "")
+        r.energy?.let { e ->
+            appendLine(
+                "Energie (Schätzung, wie Body Battery): morgens ${e.morning}, jetzt ${e.now} (${e.label}); Verbrauch Training ${Fmt.int(e.drainTraining)}, " +
+                    "Stress ${Fmt.int(e.drainStress)}, Alltag ${Fmt.int(e.drainEveryday)}, Wachzeit ${Fmt.int(e.drainAwake)}, Aufladung ${Fmt.int(e.charge)}; " +
+                    "Trainingsbereitschaft jetzt ${e.readinessNow ?: "–"} (morgens ${e.readinessMorning ?: "–"})",
+            )
+        }
         appendLine()
 
         val h = r.heart

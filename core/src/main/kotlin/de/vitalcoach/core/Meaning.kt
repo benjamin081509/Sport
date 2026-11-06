@@ -158,5 +158,23 @@ object Meaning {
         return parts.joinToString(" ")
     }
 
+    /** Energie: woher der Verbrauch seit dem Aufwachen kommt und was er für die Trainingsbereitschaft bedeutet. */
+    fun energy(e: EnergyReport): String {
+        val parts = mutableListOf<String>()
+        parts += "Morgens ${e.morning} (aus deiner Erholung), jetzt ${e.now}."
+        val drains = listOf("Training" to e.drainTraining, "Stress" to e.drainStress, "Alltag" to e.drainEveryday, "Wachzeit" to e.drainAwake)
+            .filter { it.second >= 1.0 }
+            .sortedByDescending { it.second }
+            .joinToString(", ") { "${it.first} −${it.second.roundToInt()}" }
+        if (drains.isNotEmpty()) {
+            parts += "Verbraucht: $drains" + (if (e.charge >= 1.0) ", Ruhephasen +${e.charge.roundToInt()}." else ".")
+        }
+        val rm = e.readinessMorning
+        val rn = e.readinessNow
+        if (rm != null && rn != null && rm - rn >= 5) parts += "Deine Trainingsbereitschaft ist dadurch von $rm auf $rn gesunken."
+        if (!e.hasDayHeartRate) parts += "Tagsüber fehlen Pulsdaten – Stress und Alltag sind noch nicht berücksichtigt."
+        return parts.joinToString(" ")
+    }
+
     private fun round5(x: Double): Int = ((x / 5.0).roundToInt() * 5).coerceAtLeast(5)
 }

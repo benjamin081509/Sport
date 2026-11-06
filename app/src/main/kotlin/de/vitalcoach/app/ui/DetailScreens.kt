@@ -241,6 +241,9 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
             MetricKey.BASELINES -> baselineItems(r)
             MetricKey.CORRELATIONS -> correlationItems(r)
             MetricKey.TRENDS -> trendItems(r)
+            MetricKey.ENERGY -> item {
+                if (r.energy != null) EnergyCard(r) else Text("Energie erscheint, sobald Schlafdaten von letzter Nacht vorliegen.")
+            }
         }
         item {
             InfoCard("Was ist das & wie wird es berechnet?", Explain.what(key) + "\n\n" + Explain.how(key)) {
