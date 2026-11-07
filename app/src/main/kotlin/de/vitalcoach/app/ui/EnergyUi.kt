@@ -141,6 +141,9 @@ private fun EnergyDayChart(e: EnergyReport, zone: ZoneId, color: Color, height: 
     val last = pts.last().time
     val axisEnd = maxOf(last, start.plusSeconds(16 * 3600))
     val span = Duration.between(start, axisEnd).seconds.toFloat().coerceAtLeast(1f)
+    val sel = rememberChartSelection(pts.size to pts.last().value)
+    val marker = MaterialTheme.colorScheme.onSurfaceVariant
+    fun frac(t: java.time.Instant) = Duration.between(start, t).seconds / span
     Column {
         Row {
             Column(Modifier.height(height).width(28.dp)) {
@@ -150,7 +153,13 @@ private fun EnergyDayChart(e: EnergyReport, zone: ZoneId, color: Color, height: 
                 Spacer(Modifier.weight(1f))
                 Text("0", style = MaterialTheme.typography.labelSmall, color = labelColor)
             }
-            Canvas(Modifier.weight(1f).height(height)) {
+            Box(Modifier.weight(1f).height(height)) {
+            Canvas(
+                Modifier.matchParentSize().chartTouch(pts, sel) { p, sz ->
+                    val f = p.x / sz.width.coerceAtLeast(1)
+                    pts.indices.minByOrNull { k -> kotlin.math.abs(frac(pts[k].time) - f) }
+                },
+            ) {
                 val w = size.width
                 val h = size.height
                 fun x(t: java.time.Instant) = Duration.between(start, t).seconds / span * w
@@ -172,10 +181,19 @@ private fun EnergyDayChart(e: EnergyReport, zone: ZoneId, color: Color, height: 
                 }
                 drawPath(area, Brush.verticalGradient(listOf(color.copy(alpha = 0.35f), color.copy(alpha = 0.02f)), startY = 0f, endY = h))
                 drawPath(line, color, style = Stroke(width = 2.8.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-                val end = p.last()
+                val k = sel.value
+                val end = if (k != null) p[k] else p.last()
+                if (k != null) {
+                    drawLine(marker, Offset(end.x, 0f), Offset(end.x, h), strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f)))
+                }
                 drawCircle(color.copy(alpha = 0.25f), 8.dp.toPx(), end)
                 drawCircle(surface, 5.dp.toPx(), end)
                 drawCircle(color, 3.5.dp.toPx(), end)
+            }
+            sel.value?.let { k ->
+                val v = pts[k].value.roundToInt()
+                ChartTip(Tip(timeTip(pts[k].time, zone), listOf(TipRow("Energie", "$v · ${Energy.label(v).first}", energyColor(v)))), frac(pts[k].time))
+            }
             }
         }
         Row(Modifier.fillMaxWidth().padding(start = 28.dp, top = 4.dp)) {
@@ -206,8 +224,10 @@ private fun DrainBars(e: EnergyReport) {
 private fun EnergyWeekChart(days: List<EnergyDay>, height: Dp = 110.dp) {
     val track = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val sel = rememberChartSelection(days.size to days.lastOrNull())
     Column {
-        Canvas(Modifier.fillMaxWidth().height(height)) {
+        Box(Modifier.fillMaxWidth().height(height)) {
+        Canvas(Modifier.matchParentSize().chartTouch(days, sel) { p, sz -> if (days.isEmpty()) null else slotIndex(p.x, sz.width, days.size) }) {
             val n = days.size
             val slot = size.width / n
             val bw = slot * 0.42f
@@ -219,13 +239,29 @@ private fun EnergyWeekChart(days: List<EnergyDay>, height: Dp = 110.dp) {
                 val lo = minOf(d.morning, d.evening)
                 val top = h - hi / 100f * h
                 val bottom = h - lo / 100f * h
+                val a = if (sel.value != null && sel.value != i) 0.35f else 1f
                 drawRoundRect(
-                    Brush.verticalGradient(listOf(energyColor(d.morning), energyColor(d.evening)), startY = top, endY = bottom.coerceAtLeast(top + 1f)),
+                    Brush.verticalGradient(listOf(energyColor(d.morning).copy(alpha = a), energyColor(d.evening).copy(alpha = a)), startY = top, endY = bottom.coerceAtLeast(top + 1f)),
                     Offset(cx - bw / 2, top),
                     Size(bw, (bottom - top).coerceAtLeast(bw)),
                     CornerRadius(bw / 2),
                 )
             }
+        }
+        sel.value?.let { i ->
+            val d = days[i]
+            ChartTip(
+                Tip(
+                    dayTip(d.date),
+                    listOf(
+                        TipRow("morgens", "${d.morning}", energyColor(d.morning)),
+                        TipRow(if (i == days.lastIndex) "jetzt" else "abends", "${d.evening}", energyColor(d.evening)),
+                        TipRow("verbraucht", "${d.morning - d.evening}"),
+                    ),
+                ),
+                (i + 0.5f) / days.size,
+            )
+        }
         }
         Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
             days.forEachIndexed { i, d ->

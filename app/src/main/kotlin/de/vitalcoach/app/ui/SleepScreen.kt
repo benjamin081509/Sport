@@ -120,6 +120,8 @@ private fun PhasesCard(r: AnalysisResult) {
             DonutChart(
                 listOf(n.deepMin to Palette.Deep, n.lightMin to Palette.Light, n.remMin to Palette.Rem, n.awakeMin to Palette.Awake),
                 size = 130.dp,
+                names = listOf("Tiefschlaf", "Leichtschlaf", "REM", "Wach"),
+                format = { Fmt.duration(it) },
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(Fmt.duration(n.asleepMin), style = MaterialTheme.typography.titleMedium)
@@ -200,6 +202,10 @@ private fun NightsCard(r: AnalysisResult) {
             goal = r.sleep.goalHours,
             labels = days.map { Fmt.weekday(it.date).take(2) },
             height = 160.dp,
+            tipLabels = days.map { nightTip(it.date) },
+            segmentNames = { i -> if (days[i].sleep?.hasStages == true) listOf("Tief", "Leicht", "REM") else listOf("Schlaf") },
+            format = { Fmt.duration(it * 60) },
+            totalName = "Schlaf",
         )
         Spacer(Modifier.height(8.dp))
         Legend(listOf("Tief" to Palette.Deep, "Leicht" to Palette.Light, "REM" to Palette.Rem))
@@ -223,6 +229,7 @@ private fun SleepWindowCard(r: AnalysisResult) {
                 val n = d.sleep
                 Triple(Fmt.weekday(d.date).take(2), n?.let { it.bedtimeMin to it.wakeMin }, (n?.scoreTone ?: Tone.NEUTRAL).color())
             },
+            tipLabels = days.map { nightTip(it.date) },
         )
         Spacer(Modifier.height(8.dp))
         StatRow(
@@ -275,6 +282,8 @@ private fun NightRecoveryCard(r: AnalysisResult) {
             LineChart(
                 listOf(Series(h.nightCurve.map { it.second }, Palette.Bad, "Puls")),
                 height = 120.dp,
+                xLabels = h.nightCurve.map { timeTip(it.first, r.zone) },
+                unit = "bpm",
                 startLabel = h.nightCurve.first().first.atZone(r.zone).toLocalTime().let { String.format("%02d:%02d", it.hour, it.minute) },
                 endLabel = h.nightCurve.last().first.atZone(r.zone).toLocalTime().let { String.format("%02d:%02d", it.hour, it.minute) },
             )

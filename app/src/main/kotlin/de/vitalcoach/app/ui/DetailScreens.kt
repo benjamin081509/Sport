@@ -70,16 +70,17 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
         }
         val days30 = r.days.takeLast(30)
         val start = days30.firstOrNull()?.let { Fmt.dayShort(it.date) }
+        val tips30 = dayTips(days30.map { it.date })
         when (key) {
             MetricKey.RECOVERY -> {
                 item { ScoreHero(r.todayMetrics?.recovery, "Erholung") }
                 item {
                     SectionCard(title = "30 Tage") {
-                        LineChart(listOf(Series(days30.map { it.recovery?.value?.toDouble() }, Palette.Good, "Erholung")), band = 60.0 to 75.0, startLabel = start, endLabel = "heute")
+                        LineChart(listOf(Series(days30.map { it.recovery?.value?.toDouble() }, Palette.Good, "Erholung")), band = 60.0 to 75.0, startLabel = start, endLabel = "heute", xLabels = tips30, format = { "${Fmt.int(it)} · ${recoveryLabel(it.toInt())}" })
                     }
                 }
                 item {
-                    SectionCard(title = "12 Wochen") { CalendarHeatmap(r.days.takeLast(84).map { it.date to it.recovery?.value }) }
+                    SectionCard(title = "12 Wochen") { CalendarHeatmap(r.days.takeLast(84).map { it.date to it.recovery?.value }, name = "Erholung") }
                 }
                 item { CoachCard(Coach.recovery(r), title = "Coach · Erholung") }
             }
@@ -91,7 +92,7 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
                 }
                 item {
                     SectionCard(title = "30 Tage") {
-                        LineChart(listOf(Series(days30.map { it.readiness?.value?.toDouble() }, Palette.Blue, "Bereitschaft")), band = 60.0 to 75.0, startLabel = start, endLabel = "heute")
+                        LineChart(listOf(Series(days30.map { it.readiness?.value?.toDouble() }, Palette.Blue, "Bereitschaft")), band = 60.0 to 75.0, startLabel = start, endLabel = "heute", xLabels = tips30, format = { "${Fmt.int(it)} · ${readinessLabel(it.toInt())} (morgens)" })
                     }
                 }
                 item { ForecastCard(r, null) }
@@ -124,6 +125,7 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
                             listOf(Series(days30.map { it.sleep?.asleepMin?.div(60.0) }, Palette.Purple, "Schlaf")),
                             band = 7.0 to r.sleep.goalHours.coerceAtLeast(7.5),
                             startLabel = start, endLabel = "heute", decimals = 1,
+                            xLabels = tips30, format = { Fmt.duration(it * 60) + " Schlaf" },
                         )
                     }
                 }
@@ -145,6 +147,7 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
                             listOf(Series(r.days.takeLast(60).map { it.restingHr }, Palette.Bad, "Ruhepuls")),
                             band = b?.let { (it.mean - it.sd) to (it.mean + it.sd) },
                             startLabel = r.days.takeLast(60).firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute",
+                            xLabels = dayTips(r.days.takeLast(60).map { it.date }), unit = "bpm",
                         )
                     }
                 }
@@ -167,6 +170,7 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
                             listOf(Series(r.days.takeLast(60).map { it.hrv }, Palette.Purple, "HRV")),
                             band = if (lo != null && hi != null) lo to hi else null,
                             startLabel = r.days.takeLast(60).firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute",
+                            xLabels = dayTips(r.days.takeLast(60).map { it.date }), unit = "ms",
                         )
                     }
                 }
@@ -180,6 +184,7 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
                             listOf(Series(d90.map { it.ctl }, Palette.Blue, "Fitness"), Series(d90.map { it.atl }, Palette.Orange, "Ermüdung")),
                             height = 180.dp,
                             startLabel = d90.firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute",
+                            xLabels = dayTips(d90.map { it.date }),
                         )
                         Spacer(Modifier.height(6.dp))
                         Legend(listOf("Fitness" to Palette.Blue, "Ermüdung" to Palette.Orange))
@@ -191,6 +196,7 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
                             listOf(Series(d90.map { it.tsb }, Palette.Teal, "Form")),
                             band = -10.0 to 10.0,
                             startLabel = d90.firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute",
+                            xLabels = dayTips(d90.map { it.date }), format = { "Form " + Fmt.signed(it) },
                         )
                     }
                 }
@@ -210,6 +216,9 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
                             values = d14.map { it.activeKcal },
                             colors = d14.map { Palette.Orange },
                             labels = d14.map { Fmt.weekday(it.date).take(2) },
+                            tipLabels = dayTips(d14.map { it.date }),
+                            name = "Aktive Kalorien",
+                            unit = "kcal",
                         )
                     }
                 }
@@ -217,7 +226,7 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
             MetricKey.VITALS -> {
                 item {
                     SectionCard(title = "Sauerstoff · 30 Tage") {
-                        LineChart(listOf(Series(days30.map { it.spo2 }, Palette.Blue, "SpO2")), band = 95.0 to 100.0, startLabel = start, endLabel = "heute", decimals = 1)
+                        LineChart(listOf(Series(days30.map { it.spo2 }, Palette.Blue, "SpO2")), band = 95.0 to 100.0, startLabel = start, endLabel = "heute", decimals = 1, xLabels = tips30, unit = "% SpO2")
                     }
                 }
                 item {
@@ -227,6 +236,7 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
                             listOf(Series(days30.map { it.respRate }, Palette.Teal, "Atmung")),
                             band = rb?.let { (it.mean - it.sd) to (it.mean + it.sd) },
                             startLabel = start, endLabel = "heute", decimals = 1,
+                            xLabels = tips30, unit = "Atemzüge/min",
                         )
                     }
                 }
@@ -290,7 +300,11 @@ private fun BodyCompCard(r: AnalysisResult) {
         val w = r.days.takeLast(180).map { it.weight }
         if (w.count { it != null } >= 3) {
             Spacer(Modifier.height(10.dp))
-            LineChart(listOf(Series(w, Palette.Blue, "Gewicht")), height = 120.dp, decimals = 1, startLabel = r.days.takeLast(180).firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute")
+            LineChart(
+                listOf(Series(w, Palette.Blue, "Gewicht")), height = 120.dp, decimals = 1,
+                startLabel = r.days.takeLast(180).firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute",
+                xLabels = dayTips(r.days.takeLast(180).map { it.date }), unit = "kg",
+            )
         }
         val bmi = f.bmi
         if (bmi != null) {

@@ -183,7 +183,7 @@ fun LazyListScope.heartItems(r: AnalysisResult) {
             )
             val d30 = r.days.takeLast(30)
             Spacer(Modifier.height(10.dp))
-            LineChart(listOf(Series(d30.map { it.avgHr }, Palette.Orange, "Ø Puls")), height = 110.dp, startLabel = d30.firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute")
+            LineChart(listOf(Series(d30.map { it.avgHr }, Palette.Orange, "Ø Puls")), height = 110.dp, startLabel = d30.firstOrNull()?.let { Fmt.dayShort(it.date) }, endLabel = "heute", xLabels = dayTips(d30.map { it.date }), unit = "bpm Ø")
         }
     }
     item {
@@ -201,6 +201,8 @@ fun LazyListScope.heartItems(r: AnalysisResult) {
                 LineChart(
                     listOf(Series(h.nightCurve.map { it.second }, Palette.Bad, "Puls")),
                     height = 120.dp,
+                    xLabels = h.nightCurve.map { timeTip(it.first, zone) },
+                    unit = "bpm",
                     startLabel = h.nightCurve.first().first.atZone(zone).toLocalTime().let { String.format("%02d:%02d", it.hour, it.minute) },
                     endLabel = h.nightCurve.last().first.atZone(zone).toLocalTime().let { String.format("%02d:%02d", it.hour, it.minute) },
                 )
@@ -223,7 +225,7 @@ fun LazyListScope.heartItems(r: AnalysisResult) {
             )
             if (h.hrvWeekly.size >= 3) {
                 Spacer(Modifier.height(10.dp))
-                LineChart(listOf(Series(h.hrvWeekly.map { it.second }, Palette.Purple, "HRV")), height = 120.dp, startLabel = Fmt.dayShort(h.hrvWeekly.first().first), endLabel = Fmt.dayShort(h.hrvWeekly.last().first))
+                LineChart(listOf(Series(h.hrvWeekly.map { it.second }, Palette.Purple, "HRV")), height = 120.dp, startLabel = Fmt.dayShort(h.hrvWeekly.first().first), endLabel = Fmt.dayShort(h.hrvWeekly.last().first), xLabels = h.hrvWeekly.map { weekTip(it.first) }, unit = "ms (Wochen-Ø)")
             }
         }
     }
@@ -239,7 +241,7 @@ fun LazyListScope.heartItems(r: AnalysisResult) {
             )
             if (h.rhrWeekly.size >= 3) {
                 Spacer(Modifier.height(10.dp))
-                LineChart(listOf(Series(h.rhrWeekly.map { it.second }, Palette.Bad, "Ruhepuls")), height = 120.dp, startLabel = Fmt.dayShort(h.rhrWeekly.first().first), endLabel = Fmt.dayShort(h.rhrWeekly.last().first))
+                LineChart(listOf(Series(h.rhrWeekly.map { it.second }, Palette.Bad, "Ruhepuls")), height = 120.dp, startLabel = Fmt.dayShort(h.rhrWeekly.first().first), endLabel = Fmt.dayShort(h.rhrWeekly.last().first), xLabels = h.rhrWeekly.map { weekTip(it.first) }, decimals = 1, unit = "bpm (Wochen-Ø)")
             }
         }
     }
@@ -256,6 +258,10 @@ fun LazyListScope.heartItems(r: AnalysisResult) {
                 labels = list.map { Fmt.dayShort(it.date) },
                 goal = 12.0,
                 height = 120.dp,
+                tipLabels = list.map { dayTip(it.date) + " · " + it.title },
+                name = "Abfall in 60 s",
+                unit = "Schläge",
+                goalName = "auffällig unter",
             )
             Spacer(Modifier.height(6.dp))
             Text("Schläge Abfall in 60 s · Linie = 12 (darunter auffällig)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -287,17 +293,24 @@ fun LazyListScope.stressItems(r: AnalysisResult) {
     item {
         SectionCard(title = "Über den Tag") {
             BarChart(
-                values = s.byHour.map { it ?: 0.0 },
+                values = s.byHour,
                 colors = s.byHour.map { v -> v?.let { HeartExtras.stressLabel(it).second.color() } ?: Palette.Neutral },
                 labels = (0 until 24).map { if (it % 3 == 0) "$it" else "" },
                 height = 120.dp,
+                tipLabels = (0 until 24).map { "$it–${it + 1} Uhr · Ø 14 Tage" },
+                format = { "${Fmt.int(it)} · ${HeartExtras.stressLabel(it).first}" },
+                name = "Stress",
             )
             val rest = s.restPct
             val high = s.highPct
             if (rest != null && high != null) {
                 Spacer(Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    DonutChart(listOf(rest to Palette.Good, (1 - rest - high).coerceAtLeast(0.0) to Palette.Ok, high to Palette.Warn), size = 96.dp, strokeWidth = 14.dp) {
+                    DonutChart(
+                        listOf(rest to Palette.Good, (1 - rest - high).coerceAtLeast(0.0) to Palette.Ok, high to Palette.Warn),
+                        size = 96.dp, strokeWidth = 14.dp,
+                        names = listOf("entspannt", "normal", "angespannt"), format = { Fmt.pct(it) },
+                    ) {
                         Text(Fmt.pct(rest), style = MaterialTheme.typography.titleSmall)
                     }
                     Spacer(Modifier.width(14.dp))
@@ -314,7 +327,11 @@ fun LazyListScope.stressItems(r: AnalysisResult) {
     }
     item {
         SectionCard(title = "30 Tage") {
-            LineChart(listOf(Series(s.daily.map { it.second }, Palette.Orange, "Stress")), height = 120.dp, startLabel = s.daily.firstOrNull()?.let { Fmt.dayShort(it.first) }, endLabel = "heute")
+            LineChart(
+                listOf(Series(s.daily.map { it.second }, Palette.Orange, "Stress")), height = 120.dp,
+                startLabel = s.daily.firstOrNull()?.let { Fmt.dayShort(it.first) }, endLabel = "heute",
+                xLabels = dayTips(s.daily.map { it.first }), format = { "${Fmt.int(it)} · ${HeartExtras.stressLabel(it).first}" },
+            )
         }
     }
     item { CoachCard(Coach.stress(r), title = "Coach · Stress") }
@@ -336,7 +353,11 @@ fun LazyListScope.performanceItems(r: AnalysisResult) {
             )
             if (p.efSeries.size >= 3) {
                 Spacer(Modifier.height(10.dp))
-                LineChart(listOf(Series(p.efSeries.map { it.second * 1000 }, Palette.Teal, "Effizienz")), height = 110.dp, startLabel = Fmt.dayShort(p.efSeries.first().first), endLabel = Fmt.dayShort(p.efSeries.last().first))
+                LineChart(
+                    listOf(Series(p.efSeries.map { it.second * 1000 }, Palette.Teal, "Effizienz")), height = 110.dp,
+                    startLabel = Fmt.dayShort(p.efSeries.first().first), endLabel = Fmt.dayShort(p.efSeries.last().first),
+                    xLabels = dayTips(p.efSeries.map { it.first }), format = { "Effizienz ${Fmt.num(it, 1)}" },
+                )
                 Text("steigend = schneller bei gleichem Puls", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -344,7 +365,11 @@ fun LazyListScope.performanceItems(r: AnalysisResult) {
     if (p.runPaces.size >= 3) {
         item {
             SectionCard(title = "Pace · 90 Tage", icon = Icons.Filled.Timeline) {
-                LineChart(listOf(Series(p.runPaces.map { it.second / 60.0 }, Palette.Blue, "Pace")), height = 110.dp, startLabel = Fmt.dayShort(p.runPaces.first().first), endLabel = Fmt.dayShort(p.runPaces.last().first), decimals = 1)
+                LineChart(
+                    listOf(Series(p.runPaces.map { it.second / 60.0 }, Palette.Blue, "Pace")), height = 110.dp,
+                    startLabel = Fmt.dayShort(p.runPaces.first().first), endLabel = Fmt.dayShort(p.runPaces.last().first), decimals = 1,
+                    xLabels = dayTips(p.runPaces.map { it.first }), format = { Fmt.pace(it * 60.0) },
+                )
                 Text("min/km – tiefer = schneller · ${p.runCount90} Läufe", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -399,6 +424,8 @@ fun LazyListScope.activityItems(r: AnalysisResult) {
                 colors = days.map { if ((it.steps ?: 0) >= a.stepGoal) Palette.Good else Palette.Blue },
                 goal = a.stepGoal.toDouble(),
                 labels = days.map { Fmt.weekday(it.date).take(2) },
+                tipLabels = dayTips(days.map { it.date }),
+                name = "Schritte",
             )
         }
     }
@@ -410,13 +437,18 @@ fun LazyListScope.activityItems(r: AnalysisResult) {
                     colors = a.stepsByHour.map { if (it >= 250) Palette.Good else Palette.Neutral },
                     labels = (0 until 24).map { if (it % 3 == 0) "$it" else "" },
                     height = 110.dp,
+                    tipLabels = (0 until 24).map { "$it–${it + 1} Uhr · Ø 14 Tage" },
+                    name = "Schritte",
                 )
                 val act = a.activeHours7Avg
                 val ina = a.inactiveHours7Avg
                 if (act != null && ina != null) {
                     Spacer(Modifier.height(12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        DonutChart(listOf(act to Palette.Good, ina to Palette.Bad), size = 96.dp, strokeWidth = 14.dp) {
+                        DonutChart(
+                            listOf(act to Palette.Good, ina to Palette.Bad), size = 96.dp, strokeWidth = 14.dp,
+                            names = listOf("aktiv", "inaktiv"), format = { "Ø " + Fmt.num(it, 1) + " h" },
+                        ) {
                             Text(Fmt.num(ina, 1) + " h", style = MaterialTheme.typography.titleSmall)
                         }
                         Spacer(Modifier.width(14.dp))
@@ -497,7 +529,10 @@ fun LazyListScope.trendItems(r: AnalysisResult) {
                         }
                         if (t.series.size >= 3) {
                             Spacer(Modifier.height(6.dp))
-                            Sparkline(t.series.map { it.second }, t.tone.color().takeIf { t.tone != Tone.NEUTRAL } ?: Palette.Blue, Modifier.fillMaxWidth(), height = 40.dp)
+                            Sparkline(
+                                t.series.map { it.second }, t.tone.color().takeIf { t.tone != Tone.NEUTRAL } ?: Palette.Blue, Modifier.fillMaxWidth(), height = 40.dp,
+                                xLabels = t.series.map { weekTip(it.first) }, format = { Fmt.num(it, t.decimals) + if (t.unit.isNotEmpty()) " ${t.unit}" else "" },
+                            )
                         }
                     }
                 }

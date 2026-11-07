@@ -6,6 +6,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +23,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +41,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.drawText
@@ -101,6 +108,12 @@ fun LineChart(
     endLabel: String? = null,
     decimals: Int = 0,
     fill: Boolean = true,
+    /** Beschriftung je Punkt für die Werte-Blase (z. B. „Gestern · Do, 6.11.“). */
+    xLabels: List<String>? = null,
+    /** Einheit für die Werte-Blase, z. B. „bpm“. */
+    unit: String = "",
+    /** Eigene Formatierung für die Werte-Blase (statt Zahl + Einheit). */
+    format: ((Double) -> String)? = null,
 ) {
     val all = series.flatMap { it.values.filterNotNull() } + listOfNotNull(band?.first, band?.second)
     if (all.isEmpty()) {
@@ -120,13 +133,20 @@ fun LineChart(
     val bandColor = Palette.Good.copy(alpha = 0.13f)
     val surface = MaterialTheme.colorScheme.surface
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val n = series.maxOfOrNull { it.values.size } ?: 0
+    val sel = rememberChartSelection(series.map { it.values.size } to series.map { it.values.lastOrNull() })
     Column(modifier) {
         Row {
             Column(Modifier.height(height).width(32.dp), verticalArrangement = Arrangement.SpaceBetween) {
                 Text(Fmt.num(hi - pad, decimals), style = MaterialTheme.typography.labelSmall, color = labelColor)
                 Text(Fmt.num(lo + pad, decimals), style = MaterialTheme.typography.labelSmall, color = labelColor)
             }
-            Canvas(Modifier.weight(1f).height(height)) {
+            Box(Modifier.weight(1f).height(height)) {
+            Canvas(
+                Modifier.matchParentSize().chartTouch(series, sel) { p, sz ->
+                    nearestWithValue(pointIndex(p.x, sz.width, n), { i -> series.any { it.values.getOrNull(i) != null } }, n)
+                },
+            ) {
                 val w = size.width
                 val h = size.height
                 fun y(v: Double) = (h - (v - lo) / (hi - lo) * h).toFloat()
@@ -161,12 +181,33 @@ fun LineChart(
                             drawCircle(s.color, 3.dp.toPx(), seg.first())
                         }
                     }
-                    segs.lastOrNull()?.lastOrNull()?.let {
-                        drawCircle(s.color.copy(alpha = 0.25f), 8.dp.toPx(), it)
-                        drawCircle(surface, 5.dp.toPx(), it)
-                        drawCircle(s.color, 3.5.dp.toPx(), it)
+                    if (sel.value == null) {
+                        segs.lastOrNull()?.lastOrNull()?.let {
+                            drawCircle(s.color.copy(alpha = 0.25f), 8.dp.toPx(), it)
+                            drawCircle(surface, 5.dp.toPx(), it)
+                            drawCircle(s.color, 3.5.dp.toPx(), it)
+                        }
                     }
                 }
+                sel.value?.let { i ->
+                    val sx = if (n > 1) i * w / (n - 1) else w / 2
+                    drawLine(labelColor, Offset(sx, 0f), Offset(sx, h), strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f)))
+                    series.forEach { s ->
+                        val v = s.values.getOrNull(i) ?: return@forEach
+                        val sn = s.values.size
+                        val px = if (sn > 1) i * w / (sn - 1) else w / 2
+                        drawCircle(s.color.copy(alpha = 0.25f), 9.dp.toPx(), Offset(px, y(v)))
+                        drawCircle(surface, 5.5.dp.toPx(), Offset(px, y(v)))
+                        drawCircle(s.color, 4.dp.toPx(), Offset(px, y(v)))
+                    }
+                }
+            }
+            sel.value?.let { i ->
+                val rows = series.mapNotNull { s ->
+                    s.values.getOrNull(i)?.let { v -> TipRow(if (series.size > 1) s.label else "", format?.invoke(v) ?: withUnit(v, decimals, unit), s.color) }
+                }
+                ChartTip(Tip(xLabels?.getOrNull(i) ?: "", rows), if (n > 1) i / (n - 1f) else 0.5f)
+            }
             }
         }
         if (startLabel != null || endLabel != null) {
@@ -178,9 +219,16 @@ fun LineChart(
     }
 }
 
-/** Kleiner Verlauf ohne Achsen – für Kacheln. */
+/** Kleiner Verlauf ohne Achsen. Mit [xLabels] antippbar (in Kacheln ohne, dort öffnet Tippen die Detailseite). */
 @Composable
-fun Sparkline(values: List<Double?>, color: Color, modifier: Modifier = Modifier, height: Dp = 30.dp) {
+fun Sparkline(
+    values: List<Double?>,
+    color: Color,
+    modifier: Modifier = Modifier,
+    height: Dp = 30.dp,
+    xLabels: List<String>? = null,
+    format: (Double) -> String = { Fmt.num(it, 0) },
+) {
     val vals = values.filterNotNull()
     if (vals.size < 2) return
     var lo = vals.min()
@@ -189,7 +237,15 @@ fun Sparkline(values: List<Double?>, color: Color, modifier: Modifier = Modifier
         lo -= 1
         hi += 1
     }
-    Canvas(modifier.height(height)) {
+    val n = values.size
+    val sel = rememberChartSelection(n to values.lastOrNull())
+    val marker = MaterialTheme.colorScheme.onSurfaceVariant
+    Box(modifier.height(height)) {
+    Canvas(
+        Modifier.matchParentSize().then(
+            if (xLabels != null) Modifier.chartTouch(values, sel) { p, sz -> nearestWithValue(pointIndex(p.x, sz.width, n), { values.getOrNull(it) != null }, n) } else Modifier,
+        ),
+    ) {
         val w = size.width
         val h = size.height
         val n = values.size
@@ -204,7 +260,19 @@ fun Sparkline(values: List<Double?>, color: Color, modifier: Modifier = Modifier
         }
         drawPath(fillPath, Brush.verticalGradient(listOf(color.copy(alpha = 0.25f), color.copy(alpha = 0f)), startY = 0f, endY = h))
         drawPath(path, color, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-        drawCircle(color, 3.dp.toPx(), pts.last())
+        val k = sel.value
+        val v = k?.let { values.getOrNull(it) }
+        if (k != null && v != null) {
+            val sx = k * step
+            drawLine(marker, Offset(sx, 0f), Offset(sx, h), strokeWidth = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 5f)))
+            drawCircle(color, 4.dp.toPx(), Offset(sx, (h - 3f - (v - lo) / (hi - lo) * (h - 6f)).toFloat()))
+        } else {
+            drawCircle(color, 3.dp.toPx(), pts.last())
+        }
+    }
+    val k = sel.value
+    val v = k?.let { values.getOrNull(it) }
+    if (k != null && v != null) ChartTip(Tip(xLabels?.getOrNull(k) ?: "", listOf(TipRow("", format(v), color))), if (n > 1) k / (n - 1f) else 0.5f)
     }
 }
 
@@ -217,12 +285,23 @@ fun BarChart(
     height: Dp = 130.dp,
     goal: Double? = null,
     labels: List<String>? = null,
+    /** Ausführliche Beschriftung je Balken für die Werte-Blase (sonst [labels]). */
+    tipLabels: List<String>? = null,
+    unit: String = "",
+    decimals: Int = 0,
+    /** Name des Werts in der Blase, z. B. „Schritte“. */
+    name: String = "",
+    format: ((Double) -> String)? = null,
+    goalName: String = "Ziel",
 ) {
     val maxV = max((values.filterNotNull().maxOrNull() ?: 0.0), goal ?: 0.0).takeIf { it > 0 } ?: 1.0
     val track = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
     val goalColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val count = values.size
+    val sel = rememberChartSelection(count to values.lastOrNull())
     Column(modifier) {
-        Canvas(Modifier.fillMaxWidth().height(height)) {
+        Box(Modifier.fillMaxWidth().height(height)) {
+        Canvas(Modifier.matchParentSize().chartTouch(values, sel) { p, sz -> if (count == 0) null else slotIndex(p.x, sz.width, count) }) {
             val n = values.size.coerceAtLeast(1)
             val slot = size.width / n
             val barW = slot * 0.62f
@@ -231,7 +310,8 @@ fun BarChart(
                 drawRoundRect(track, Offset(x, 0f), Size(barW, size.height), CornerRadius(barW / 2.5f))
                 if (v != null && v > 0) {
                     val bh = (v / maxV * size.height).toFloat().coerceAtLeast(barW / 2)
-                    val c = colors.getOrElse(i) { colors.last() }
+                    val c0 = colors.getOrElse(i) { colors.last() }
+                    val c = if (sel.value != null && sel.value != i) c0.copy(alpha = 0.35f) else c0
                     drawRoundRect(
                         Brush.verticalGradient(listOf(c, c.copy(alpha = 0.65f)), startY = size.height - bh, endY = size.height),
                         Offset(x, size.height - bh), Size(barW, bh), CornerRadius(barW / 2.5f),
@@ -242,6 +322,15 @@ fun BarChart(
                 val gy = (size.height - it / maxV * size.height).toFloat()
                 drawLine(goalColor, Offset(0f, gy), Offset(size.width, gy), strokeWidth = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)))
             }
+        }
+        sel.value?.let { i ->
+            val v = values.getOrNull(i)
+            val rows = listOfNotNull(
+                TipRow(name, v?.let { format?.invoke(it) ?: withUnit(it, decimals, unit) } ?: "keine Daten", colors.getOrElse(i) { colors.lastOrNull() ?: Palette.Blue }),
+                goal?.let { TipRow(goalName, format?.invoke(it) ?: withUnit(it, decimals, unit)) },
+            )
+            ChartTip(Tip(tipLabels?.getOrNull(i) ?: labels?.getOrNull(i) ?: "", rows), (i + 0.5f) / count.coerceAtLeast(1))
+        }
         }
         if (labels != null) {
             Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
@@ -261,12 +350,21 @@ fun StackedBarChart(
     height: Dp = 150.dp,
     goal: Double? = null,
     labels: List<String>? = null,
+    tipLabels: List<String>? = null,
+    /** Namen der Teile eines Stapels (Index des Stapels → Namen in Stapel-Reihenfolge). */
+    segmentNames: ((Int) -> List<String>)? = null,
+    /** Formatierung der Werte in der Blase. */
+    format: (Double) -> String = { Fmt.num(it, 0) },
+    totalName: String = "Gesamt",
 ) {
     val maxV = max(stacks.maxOfOrNull { s -> s.sumOf { it.first } } ?: 0.0, goal ?: 0.0).takeIf { it > 0 } ?: 1.0
     val track = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
     val goalColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val count = stacks.size
+    val sel = rememberChartSelection(count to stacks.lastOrNull()?.sumOf { it.first })
     Column(modifier) {
-        Canvas(Modifier.fillMaxWidth().height(height)) {
+        Box(Modifier.fillMaxWidth().height(height)) {
+        Canvas(Modifier.matchParentSize().chartTouch(stacks, sel) { p, sz -> if (count == 0) null else slotIndex(p.x, sz.width, count) }) {
             val n = stacks.size.coerceAtLeast(1)
             val slot = size.width / n
             val barW = slot * 0.62f
@@ -280,8 +378,9 @@ fun StackedBarChart(
                     val clip = Path().apply { addRoundRect(RoundRect(x, size.height - th, x + barW, size.height, r)) }
                     clipPath(clip) {
                         var bottom = size.height
-                        stack.forEach { (v, c) ->
+                        stack.forEach { (v, c0) ->
                             val sh = (v / maxV * size.height).toFloat()
+                            val c = if (sel.value != null && sel.value != i) c0.copy(alpha = 0.35f) else c0
                             drawRect(c, Offset(x, bottom - sh), Size(barW, sh))
                             bottom -= sh
                         }
@@ -292,6 +391,18 @@ fun StackedBarChart(
                 val gy = (size.height - it / maxV * size.height).toFloat()
                 drawLine(goalColor, Offset(0f, gy), Offset(size.width, gy), strokeWidth = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)))
             }
+        }
+        sel.value?.let { i ->
+            val stack = stacks.getOrNull(i).orEmpty()
+            val total = stack.sumOf { it.first }
+            val rows = if (total <= 0) {
+                listOf(TipRow("", "keine Daten"))
+            } else {
+                stack.mapIndexedNotNull { k, (v, c) -> if (v > 0) TipRow(segmentNames?.invoke(i)?.getOrNull(k) ?: "", format(v), c) else null } +
+                    (if (stack.size > 1) listOf(TipRow(totalName, format(total))) else emptyList())
+            }
+            ChartTip(Tip(tipLabels?.getOrNull(i) ?: labels?.getOrNull(i) ?: "", rows), (i + 0.5f) / count.coerceAtLeast(1))
+        }
         }
         if (labels != null) {
             Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
@@ -331,12 +442,27 @@ fun DonutChart(
     modifier: Modifier = Modifier,
     size: Dp = 140.dp,
     strokeWidth: Dp = 18.dp,
+    /** Namen der Teile – dann zeigt Antippen Name, Wert und Anteil in der Mitte. */
+    names: List<String>? = null,
+    format: (Double) -> String = { Fmt.num(it, 0) },
     center: @Composable () -> Unit = {},
 ) {
     val track = MaterialTheme.colorScheme.surfaceVariant
     val anim by animateFloatAsState(1f, tween(900), label = "donut")
+    val total0 = parts.sumOf { it.first }
+    val sel = rememberChartSelection(parts.size to total0)
     Box(modifier.size(size), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(size)) {
+        Canvas(
+            Modifier.size(size).chartTouch(parts, sel) { p, sz ->
+                if (names == null || total0 <= 0) return@chartTouch null
+                val ang = (Math.toDegrees(kotlin.math.atan2((p.y - sz.height / 2f).toDouble(), (p.x - sz.width / 2f).toDouble())) + 90.0 + 360.0) % 360.0
+                var acc = 0.0
+                parts.indices.firstOrNull { k ->
+                    acc += parts[k].first / total0 * 360.0
+                    parts[k].first > 0 && ang < acc
+                }
+            },
+        ) {
             val sw = strokeWidth.toPx()
             val d = this.size.minDimension - sw
             val tl = Offset(sw / 2, sw / 2)
@@ -345,14 +471,25 @@ fun DonutChart(
             if (total > 0) {
                 var start = -90f
                 val gap = if (parts.count { it.first > 0 } > 1) 2f else 0f
-                parts.filter { it.first > 0 }.forEach { (v, c) ->
+                parts.forEachIndexed { k, (v, c0) ->
+                    if (v <= 0) return@forEachIndexed
                     val sweep = (360f * (v / total).toFloat()) * anim
+                    val c = if (sel.value != null && sel.value != k) c0.copy(alpha = 0.3f) else c0
                     drawArc(c, start + gap / 2, (sweep - gap).coerceAtLeast(0.5f), false, tl, Size(d, d), style = Stroke(sw, cap = StrokeCap.Butt))
                     start += sweep
                 }
             }
         }
-        center()
+        val k = sel.value
+        if (k != null && names != null && total0 > 0) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(format(parts[k].first), style = MaterialTheme.typography.titleMedium, color = parts[k].second)
+                Text(names.getOrElse(k) { "" }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 2)
+                Text(Fmt.pct(parts[k].first / total0), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            center()
+        }
     }
 }
 
@@ -440,6 +577,14 @@ fun Hypnogram(stages: List<SleepSegment>, zone: ZoneId, modifier: Modifier = Mod
         SleepStage.LIGHT, SleepStage.SLEEPING, SleepStage.UNKNOWN -> Palette.Light
         SleepStage.DEEP -> Palette.Deep
     }
+    fun name(s: SleepStage) = when (s) {
+        SleepStage.AWAKE, SleepStage.OUT_OF_BED -> "Wach"
+        SleepStage.REM -> "REM-Schlaf"
+        SleepStage.LIGHT, SleepStage.SLEEPING, SleepStage.UNKNOWN -> "Leichtschlaf"
+        SleepStage.DEEP -> "Tiefschlaf"
+    }
+    val sel = rememberChartSelection(stages.size to start)
+    val hm = { t: java.time.Instant -> t.atZone(zone).toLocalTime().let { String.format("%02d:%02d", it.hour, it.minute) } }
     Column(modifier) {
         Row {
             Column(Modifier.height(height).width(48.dp), verticalArrangement = Arrangement.SpaceAround) {
@@ -447,7 +592,14 @@ fun Hypnogram(stages: List<SleepSegment>, zone: ZoneId, modifier: Modifier = Mod
                     Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Canvas(Modifier.weight(1f).height(height)) {
+            Box(Modifier.weight(1f).height(height)) {
+            Canvas(
+                Modifier.matchParentSize().chartTouch(stages, sel) { p, sz ->
+                    val t = start.plusSeconds((p.x / sz.width.coerceAtLeast(1) * total).toLong())
+                    stages.indexOfFirst { !t.isBefore(it.start) && t.isBefore(it.end) }.takeIf { it >= 0 }
+                        ?: stages.indices.minByOrNull { k -> kotlin.math.abs(Duration.between(t, stages[k].start).seconds) }
+                },
+            ) {
                 val rowH = size.height / 4f
                 var prev: Pair<Float, Float>? = null
                 stages.forEach { seg ->
@@ -459,6 +611,21 @@ fun Hypnogram(stages: List<SleepSegment>, zone: ZoneId, modifier: Modifier = Mod
                     drawRoundRect(color(seg.stage), Offset(x0, cy - rowH * 0.32f), Size((x1 - x0).coerceAtLeast(2f), rowH * 0.64f), CornerRadius(6f))
                     prev = x1 to cy
                 }
+                sel.value?.let { k ->
+                    val seg = stages[k]
+                    val x0 = Duration.between(start, seg.start).seconds / total * size.width
+                    val x1 = Duration.between(start, seg.end).seconds / total * size.width
+                    drawRoundRect(color(seg.stage).copy(alpha = 0.18f), Offset(x0, 0f), Size((x1 - x0).coerceAtLeast(4f), size.height), CornerRadius(6f))
+                }
+            }
+            sel.value?.let { k ->
+                val seg = stages[k]
+                val mid = (Duration.between(start, seg.start).seconds + Duration.between(seg.start, seg.end).seconds / 2f) / total
+                ChartTip(
+                    Tip("${hm(seg.start)}–${hm(seg.end)} Uhr", listOf(TipRow(name(seg.stage), Fmt.duration(Duration.between(seg.start, seg.end).seconds / 60.0), color(seg.stage)))),
+                    mid,
+                )
+            }
             }
         }
         Row(Modifier.fillMaxWidth().padding(start = 48.dp, top = 4.dp)) {
@@ -475,6 +642,7 @@ fun SleepWindowChart(
     nights: List<Triple<String, Pair<Double, Double>?, Color>>,
     modifier: Modifier = Modifier,
     height: Dp = 170.dp,
+    tipLabels: List<String>? = null,
 ) {
     val known = nights.mapNotNull { it.second }
     if (known.isEmpty()) {
@@ -485,6 +653,7 @@ fun SleepWindowChart(
     val bottom = (known.maxOf { it.second } + 30).let { ((it / 60).toInt() + 1) * 60.0 }
     val track = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
     val grid = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+    val sel = rememberChartSelection(nights.size to known.lastOrNull())
     Column(modifier) {
         Row {
             Column(Modifier.height(height).width(40.dp), verticalArrangement = Arrangement.SpaceBetween) {
@@ -492,7 +661,8 @@ fun SleepWindowChart(
                 Text(Fmt.clock((top + bottom) / 2), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(Fmt.clock(bottom), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Canvas(Modifier.weight(1f).height(height)) {
+            Box(Modifier.weight(1f).height(height)) {
+            Canvas(Modifier.matchParentSize().chartTouch(nights, sel) { p, sz -> if (nights.isEmpty()) null else slotIndex(p.x, sz.width, nights.size) }) {
                 fun y(v: Double) = ((v - top) / (bottom - top) * size.height).toFloat()
                 for (i in 0..2) {
                     val gy = size.height * i / 2f
@@ -501,7 +671,8 @@ fun SleepWindowChart(
                 val n = nights.size.coerceAtLeast(1)
                 val slot = size.width / n
                 val bw = slot * 0.5f
-                nights.forEachIndexed { i, (_, win, c) ->
+                nights.forEachIndexed { i, (_, win, c0) ->
+                    val c = if (sel.value != null && sel.value != i) c0.copy(alpha = 0.35f) else c0
                     val x = i * slot + (slot - bw) / 2
                     drawRoundRect(track, Offset(x, 0f), Size(bw, size.height), CornerRadius(bw / 2))
                     if (win != null) {
@@ -514,6 +685,16 @@ fun SleepWindowChart(
                     }
                 }
             }
+            sel.value?.let { i ->
+                val (label, win, c) = nights[i]
+                val row = if (win != null) {
+                    TipRow("", "${Fmt.clock(win.first)} → ${Fmt.clock(win.second)} · ${Fmt.duration(win.second - win.first)}", c)
+                } else {
+                    TipRow("", "keine Daten")
+                }
+                ChartTip(Tip(tipLabels?.getOrNull(i) ?: label, listOf(row)), (i + 0.5f) / nights.size)
+            }
+            }
         }
         Row(Modifier.fillMaxWidth().padding(start = 40.dp, top = 4.dp)) {
             nights.forEach {
@@ -525,12 +706,15 @@ fun SleepWindowChart(
 
 /** Kalender-Heatmap (Wochen × Wochentage), Farbe nach Score. */
 @Composable
-fun CalendarHeatmap(values: List<Pair<LocalDate, Int?>>, weeks: Int = 12, modifier: Modifier = Modifier) {
+fun CalendarHeatmap(values: List<Pair<LocalDate, Int?>>, weeks: Int = 12, modifier: Modifier = Modifier, name: String = "Wert") {
     if (values.isEmpty()) return
     val map = values.toMap()
     val last = values.maxOf { it.first }
     val firstMonday = last.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).minusWeeks((weeks - 1).toLong())
     val empty = MaterialTheme.colorScheme.surfaceVariant
+    val ring = MaterialTheme.colorScheme.onSurface
+    var picked by remember(values.size, last) { mutableStateOf<LocalDate?>(null) }
+    val haptic = LocalHapticFeedback.current
     Column(modifier) {
         Row {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -551,11 +735,32 @@ fun CalendarHeatmap(values: List<Pair<LocalDate, Int?>>, weeks: Int = 12, modifi
                                 v == null -> empty
                                 else -> scoreToneOf(v).color()
                             }
-                            Box(Modifier.size(16.dp).clip(RoundedCornerShape(4.dp)).background(c))
+                            Box(
+                                Modifier
+                                    .size(16.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(c)
+                                    .then(if (picked == date) Modifier.border(2.dp, ring, RoundedCornerShape(4.dp)) else Modifier)
+                                    .then(
+                                        if (date.isAfter(last)) {
+                                            Modifier
+                                        } else {
+                                            Modifier.clickable {
+                                                picked = if (picked == date) null else date
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            }
+                                        },
+                                    ),
+                            )
                         }
                     }
                 }
             }
+        }
+        picked?.let { d ->
+            Spacer(Modifier.height(6.dp))
+            val v = map[d]
+            ChartTip(Tip(dayTip(d), listOf(TipRow(name, v?.toString() ?: "keine Daten", v?.let { scoreToneOf(it).color() }))), 0f)
         }
         Spacer(Modifier.height(6.dp))
         Legend(listOf("gut" to Palette.Good, "solide" to Palette.Ok, "mäßig" to Palette.Warn, "schlecht" to Palette.Bad))
@@ -569,7 +774,15 @@ fun RadarChart(axes: List<Pair<String, Int?>>, color: Color, modifier: Modifier 
     val tm = rememberTextMeasurer()
     val labelStyle = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
     val grid = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-    Canvas(modifier.size(size)) {
+    val sel = rememberChartSelection(axes.map { it.second })
+    Box(modifier.size(size)) {
+    Canvas(
+        Modifier.matchParentSize().chartTouch(axes, sel) { p, sz ->
+            val n = axes.size
+            val ang = (Math.toDegrees(kotlin.math.atan2((p.y - sz.height / 2f).toDouble(), (p.x - sz.width / 2f).toDouble())) + 90.0 + 360.0) % 360.0
+            ((ang / (360.0 / n)).roundToIntSafe()) % n
+        },
+    ) {
         val c = Offset(this.size.width / 2, this.size.height / 2)
         val r = this.size.minDimension / 2 - 44.dp.toPx()
         val n = axes.size
@@ -596,13 +809,20 @@ fun RadarChart(axes: List<Pair<String, Int?>>, color: Color, modifier: Modifier 
         drawPath(data, color.copy(alpha = 0.25f))
         drawPath(data, color, style = Stroke(2.5.dp.toPx(), join = StrokeJoin.Round))
         axes.forEachIndexed { i, (label, v) ->
-            if (v != null) drawCircle(color, 3.5.dp.toPx(), point(i, (v / 100f).coerceIn(0.02f, 1f)))
+            if (v != null) drawCircle(color, (if (sel.value == i) 6.dp else 3.5.dp).toPx(), point(i, (v / 100f).coerceIn(0.02f, 1f)))
             val layout = tm.measure(AnnotatedString(label), style = labelStyle)
             val lp = point(i, 1.22f)
             drawText(layout, topLeft = Offset(lp.x - layout.size.width / 2f, lp.y - layout.size.height / 2f))
         }
     }
+    sel.value?.let { i ->
+        val (label, v) = axes[i]
+        ChartTip(Tip(label, listOf(TipRow("", v?.let { "$it von 100" } ?: "keine Daten", v?.let { scoreToneOf(it).color() }))), 0.5f)
+    }
+    }
 }
+
+private fun Double.roundToIntSafe(): Int = if (isNaN()) 0 else kotlin.math.round(this).toInt()
 
 /** Streudiagramm mit Trendlinie (für Zusammenhänge). */
 @Composable
@@ -631,21 +851,49 @@ fun ScatterChart(
     val icpt = my - slope * mx
     val grid = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
     val trend = MaterialTheme.colorScheme.onSurface
+    val surface = MaterialTheme.colorScheme.surface
+    val sel = rememberChartSelection(points.size to points.lastOrNull())
+    val dx = if (x1 - x0 < 10) 1 else 0
+    val dy = if (y1 - y0 < 10) 1 else 0
     Column(modifier) {
         Row {
             Column(Modifier.height(height).width(36.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                Text(Fmt.num(y1, if (y1 - y0 < 10) 1 else 0), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(Fmt.num(y0, if (y1 - y0 < 10) 1 else 0), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(Fmt.num(y1, dy), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(Fmt.num(y0, dy), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Canvas(Modifier.weight(1f).height(height)) {
+            Box(Modifier.weight(1f).height(height)) {
+            Canvas(
+                Modifier.matchParentSize().chartTouch(points, sel) { p, sz ->
+                    fun qx(x: Double) = ((x - x0) / (x1 - x0) * (sz.width - 12f) + 6f).toFloat()
+                    fun qy(y: Double) = (sz.height - 6f - (y - y0) / (y1 - y0) * (sz.height - 12f)).toFloat()
+                    points.indices.minByOrNull { k ->
+                        val ddx = qx(points[k].first) - p.x
+                        val ddy = qy(points[k].second) - p.y
+                        ddx * ddx + ddy * ddy
+                    }
+                },
+            ) {
                 fun px(x: Double) = ((x - x0) / (x1 - x0) * (size.width - 12f) + 6f).toFloat()
                 fun py(y: Double) = (size.height - 6f - (y - y0) / (y1 - y0) * (size.height - 12f)).toFloat()
                 drawRoundRect(grid, Offset.Zero, size, CornerRadius(12f), style = Stroke(1f))
                 points.forEach { (x, y) -> drawCircle(color.copy(alpha = 0.55f), 4.dp.toPx(), Offset(px(x), py(y))) }
+                sel.value?.let { k ->
+                    val o = Offset(px(points[k].first), py(points[k].second))
+                    drawCircle(surface, 8.dp.toPx(), o)
+                    drawCircle(color, 6.dp.toPx(), o)
+                }
                 drawLine(
                     trend, Offset(px(x0), py(icpt + slope * x0)), Offset(px(x1), py(icpt + slope * x1)),
                     strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round, pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f)),
                 )
+            }
+            sel.value?.let { k ->
+                val (x, y) = points[k]
+                ChartTip(
+                    Tip("", listOf(TipRow(xLabel.ifEmpty { "x" }, Fmt.num(x, dx)), TipRow(yLabel.ifEmpty { "y" }, Fmt.num(y, dy)))),
+                    ((x - x0) / (x1 - x0)).toFloat(),
+                )
+            }
             }
         }
         Row(Modifier.fillMaxWidth().padding(start = 36.dp, top = 4.dp)) {
@@ -703,9 +951,15 @@ fun ForecastChart(
     val numStyle = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
     val grid = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
     val dates = f.scenarios.values.firstOrNull()?.map { it.date }.orEmpty()
+    val sel = rememberChartSelection(dates)
     Column(modifier) {
-        Canvas(Modifier.fillMaxWidth().height(height)) {
+        Box(Modifier.fillMaxWidth().height(height)) {
+        Canvas(Modifier.matchParentSize().chartTouch(dates, sel) { p, sz -> if (dates.isEmpty()) null else slotIndex(p.x, sz.width, dates.size) }) {
             fun y(v: Int) = size.height - v / 100f * size.height
+            sel.value?.let { g ->
+                val gw0 = size.width / dates.size.coerceAtLeast(1)
+                drawRoundRect(grid.copy(alpha = 0.18f), Offset(g * gw0, 0f), Size(gw0, size.height), CornerRadius(12f))
+            }
             listOf(45, 60, 75).forEach { t ->
                 drawLine(grid, Offset(0f, y(t)), Offset(size.width, y(t)), strokeWidth = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 8f)))
             }
@@ -723,6 +977,13 @@ fun ForecastChart(
                     drawText(layout, topLeft = Offset(x - layout.size.width / 2f, y(p.high) - layout.size.height - 2f))
                 }
             }
+        }
+        sel.value?.let { g ->
+            val rows = scenarios.mapNotNull { sc ->
+                f.scenarios[sc]?.getOrNull(g)?.let { p -> TipRow(sc.label, "${p.expected} (${p.low}–${p.high})", sc.color()) }
+            }
+            ChartTip(Tip(dayTip(dates[g]), rows), (g + 0.5f) / dates.size)
+        }
         }
         Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
             dates.forEach {

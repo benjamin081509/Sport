@@ -111,7 +111,7 @@ private fun RecoveryHeatmapCard(r: AnalysisResult) {
     val vals = r.days.takeLast(84).map { it.date to it.recovery?.value }
     if (vals.none { it.second != null }) return
     SectionCard(title = "Erholung · 12 Wochen", icon = Icons.Filled.CalendarMonth) {
-        CalendarHeatmap(vals)
+        CalendarHeatmap(vals, name = "Erholung")
     }
 }
 
@@ -264,6 +264,8 @@ private fun HrvTrendCard(r: AnalysisResult, vm: MainViewModel) {
             band = if (lo != null && hi != null) lo to hi else null,
             startLabel = days.firstOrNull()?.let { Fmt.dayShort(it.date) },
             endLabel = "heute",
+            xLabels = dayTips(days.map { it.date }),
+            unit = "ms",
         )
     }
 }
@@ -289,6 +291,8 @@ private fun RhrDeviationCard(r: AnalysisResult, vm: MainViewModel) {
             band = b?.let { (it.mean - it.sd) to (it.mean + it.sd) },
             startLabel = days.firstOrNull()?.let { Fmt.dayShort(it.date) },
             endLabel = "heute",
+            xLabels = dayTips(days.map { it.date }),
+            format = { v -> Fmt.num(v, 1) + " bpm" + (b?.let { " (" + Fmt.signed(v - it.mean, 1) + " zu normal)" } ?: "") },
         )
     }
 }

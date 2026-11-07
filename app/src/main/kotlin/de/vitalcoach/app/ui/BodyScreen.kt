@@ -87,6 +87,8 @@ fun Vo2Card(r: AnalysisResult, vm: MainViewModel?) {
                 startLabel = Fmt.dayShort(f.vo2History.first().first),
                 endLabel = Fmt.dayShort(f.vo2History.last().first),
                 decimals = 1,
+                xLabels = dayTips(f.vo2History.map { it.first }),
+                unit = "ml/kg/min",
             )
         }
         Spacer(Modifier.height(6.dp))
@@ -116,6 +118,8 @@ private fun RestingHrCard(r: AnalysisResult, vm: MainViewModel) {
             band = base?.let { (it.mean - it.sd) to (it.mean + it.sd) },
             startLabel = days.firstOrNull()?.let { Fmt.dayShort(it.date) },
             endLabel = "heute",
+            xLabels = dayTips(days.map { it.date }),
+            unit = "bpm",
         )
         Spacer(Modifier.height(6.dp))
         Text("Grüner Bereich = dein persönlicher Normalbereich (30 Tage).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -143,6 +147,8 @@ private fun HrvCard(r: AnalysisResult, vm: MainViewModel) {
             band = if (lo != null && hi != null) lo to hi else null,
             startLabel = days.firstOrNull()?.let { Fmt.dayShort(it.date) },
             endLabel = "heute",
+            xLabels = dayTips(days.map { it.date }),
+            unit = "ms",
         )
         if (lo != null && hi != null) {
             Spacer(Modifier.height(6.dp))
@@ -177,6 +183,8 @@ private fun ActivityCard(r: AnalysisResult, vm: MainViewModel) {
             colors = days.map { if ((it.steps ?: 0) >= a.stepGoal) Palette.Good else Palette.Blue },
             goal = a.stepGoal.toDouble(),
             labels = days.map { Fmt.weekday(it.date).take(2) },
+            tipLabels = dayTips(days.map { it.date }),
+            name = "Schritte",
         )
     }
 }
@@ -196,6 +204,8 @@ private fun VitalsCard(r: AnalysisResult, vm: MainViewModel) {
                 listOf(Series(days.map { it.respRate }, Palette.Teal, "Atemfrequenz")),
                 height = 100.dp,
                 decimals = 1,
+                xLabels = dayTips(days.map { it.date }),
+                unit = "/min",
                 startLabel = days.firstOrNull()?.let { Fmt.dayShort(it.date) },
                 endLabel = "heute",
             )

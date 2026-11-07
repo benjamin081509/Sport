@@ -141,6 +141,7 @@ private fun LoadCard(r: AnalysisResult, vm: MainViewModel) {
         LineChart(
             listOf(Series(days.map { it.ctl }, Palette.Blue, "Fitness"), Series(days.map { it.atl }, Palette.Orange, "Ermüdung")),
             height = 170.dp,
+            xLabels = dayTips(days.map { it.date }),
             startLabel = days.firstOrNull()?.let { Fmt.dayShort(it.date) },
             endLabel = "heute",
         )
@@ -217,6 +218,10 @@ private fun WeeklyLoadCard(r: AnalysisResult) {
             goal = avg,
             labels = weeks.map { "${it.key.get(java.time.temporal.IsoFields.WEEK_OF_WEEK_BASED_YEAR)}" },
             height = 140.dp,
+            tipLabels = weeks.map { weekTip(it.key) },
+            name = "Belastung",
+            unit = "Punkte",
+            goalName = "Ø Wochen davor",
         )
         Spacer(Modifier.height(6.dp))
         Legend(listOf("normal" to Palette.Blue, "> 30 % über Ø" to Palette.Orange, "aktuelle Woche" to Palette.Teal))
@@ -233,7 +238,10 @@ private fun IntensityCard(r: AnalysisResult) {
             return@SectionCard
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            DonutChart(l.zoneMin28.mapIndexed { i, m -> m to Palette.Zones[i] }, size = 130.dp) {
+            DonutChart(
+                l.zoneMin28.mapIndexed { i, m -> m to Palette.Zones[i] }, size = 130.dp,
+                names = ZONE_NAMES, format = { Fmt.duration(it) },
+            ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(Fmt.pct(easy), style = MaterialTheme.typography.titleLarge, color = if (easy >= 0.75) Palette.Good else Palette.Warn)
                     Text("locker", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -267,7 +275,10 @@ private fun PerformanceLinkCard(r: AnalysisResult, vm: MainViewModel) {
         )
         if (p.efSeries.size >= 3) {
             Spacer(Modifier.height(8.dp))
-            Sparkline(p.efSeries.map { it.second }, Palette.Teal, Modifier.fillMaxWidth(), height = 44.dp)
+            Sparkline(
+                p.efSeries.map { it.second * 1000 }, Palette.Teal, Modifier.fillMaxWidth(), height = 44.dp,
+                xLabels = dayTips(p.efSeries.map { it.first }), format = { "Effizienz ${Fmt.num(it, 1)}" },
+            )
         }
     }
 }
