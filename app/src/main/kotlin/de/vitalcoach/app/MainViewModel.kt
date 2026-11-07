@@ -11,6 +11,8 @@ import de.vitalcoach.core.Digest
 import de.vitalcoach.app.notify.DigestKind
 import de.vitalcoach.app.notify.DigestScheduler
 import de.vitalcoach.app.notify.Notifier
+import de.vitalcoach.app.notify.RunReminder
+import de.vitalcoach.core.RunPlan
 import de.vitalcoach.core.MetricKey
 import de.vitalcoach.core.SnapshotCodec
 import de.vitalcoach.core.UserProfile
@@ -36,6 +38,7 @@ sealed interface Route {
     data object Methods : Route
     data object Privacy : Route
     data object Settings : Route
+    data object PlanEditor : Route
 }
 
 sealed interface AiState {
@@ -66,6 +69,8 @@ data class UiState(
     val backgroundAccess: HealthConnectRepository.BackgroundAccess? = null,
     val digestOn: Map<DigestKind, Boolean> = emptyMap(),
     val digestMinutes: Map<DigestKind, Int> = emptyMap(),
+    /** Persönlicher Laufplan (null = noch keiner). */
+    val runPlan: RunPlan? = null,
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -84,6 +89,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             notificationsAllowed = Notifier.canNotify(app),
             digestOn = DigestKind.entries.associateWith { store.digestEnabled(it.name) },
             digestMinutes = DigestKind.entries.associateWith { store.digestMinutes(it.name, it.defaultMinutes) },
+            runPlan = store.runPlan,
         ),
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -168,8 +174,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Zusammenfassungen für den Fall merken, dass Health Connect im Hintergrund nicht gelesen werden darf. */
     private fun cacheDigests(r: AnalysisResult) {
         val now = System.currentTimeMillis()
-        store.saveDigest(DigestKind.MORNING.name, Digest.morning(r), now, Digest.hasLastNight(r))
-        store.saveDigest(DigestKind.EVENING.name, Digest.evening(r), now, true)
+        val plan = store.runPlan
+        store.saveDigest(DigestKind.MORNING.name, Digest.morning(r, plan), now, Digest.hasLastNight(r))
+        store.saveDigest(DigestKind.EVENING.name, Digest.evening(r, plan), now, true)
     }
 
     fun refreshNotificationStatus() {
@@ -187,6 +194,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         DigestScheduler.schedule(getApplication<Application>(), kind)
         _state.update { it.copy(digestMinutes = it.digestMinutes + (kind to minutes)) }
     }
+
+    /** Laufplan speichern (null = löschen) und Erinnerungen neu planen. */
+    fun saveRunPlan(plan: RunPlan?) {
+        store.runPlan = plan
+        RunReminder.schedule(getApplication<Application>())
+        _state.update { it.copy(runPlan = plan) }
+    }
+
+    /** Lauf-Erinnerung sofort auslösen (zum Ausprobieren). */
+    fun testRunReminder() = RunReminder.test(getApplication<Application>())
 
     /** Sendet die Zusammenfassung sofort (zum Ausprobieren). */
     fun testDigest(kind: DigestKind) = DigestScheduler.runNow(getApplication<Application>(), kind, test = true)

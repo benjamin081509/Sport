@@ -39,7 +39,8 @@ class DigestWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                     DigestScheduler.runNow(ctx, kind, attempt + 1, delayMin = RETRY_MIN)
                     return Result.success()
                 }
-                Notifier.show(ctx, kind, if (kind == DigestKind.MORNING) Digest.morning(r) else Digest.evening(r))
+                val plan = SettingsStore(ctx).runPlan
+                Notifier.show(ctx, kind, if (kind == DigestKind.MORNING) Digest.morning(r, plan) else Digest.evening(r, plan))
             }
             BackgroundAnalysis.Outcome.NoAccess -> Notifier.showHint(
                 ctx, kind, "VitalCoach braucht Zugriff",

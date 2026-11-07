@@ -8,12 +8,12 @@ data class DigestContent(val title: String, val text: String, val lines: List<St
 /** Morgen- und Abend-Zusammenfassung für die täglichen Benachrichtigungen. */
 object Digest {
 
-    const val MAX_LINES = 6
+    const val MAX_LINES = 7
 
     /** Ob die Nacht zu heute schon in den Daten ist (Samsung Health synchronisiert teils verzögert). */
     fun hasLastNight(r: AnalysisResult): Boolean = r.todayMetrics?.sleep?.date == r.today
 
-    fun morning(r: AnalysisResult): DigestContent {
+    fun morning(r: AnalysisResult, plan: RunPlan? = null): DigestContent {
         val t = r.todayMetrics
         val night = t?.sleep?.takeIf { it.date == r.today }
         val rec = t?.recovery?.value
@@ -42,11 +42,12 @@ object Digest {
             }
             lines += "❤️ Ruhepuls ${Fmt.int(rhr)}$devText" + (t.hrv?.let { " · HRV ${Fmt.int(it)} ms" } ?: "")
         }
-        r.energy?.let { lines += "🔋 Energie ${it.morning} – ${it.label}" }
+        r.energy?.let { lines += "🔋 Energie ${it.morning} – ${Energy.label(it.morning).first}" }
         val rc = r.load.recommendation
         if (rc != null) {
             lines += "🏃 ${rc.title}" + if (rc.targetLoadHigh > 0) ": ${rc.zone2MinLow}–${rc.zone2MinHigh} min Zone 2" else ""
         }
+        plan?.let { p -> Motivation.digestLine(p, r, morning = true)?.let { lines += it } }
         r.warnings.firstOrNull()?.let { lines += "⚠️ ${it.title}" }
         r.sleep.debt7H?.let { if (it >= 3) lines += "⏳ Schlafschuld (7 Tage): ${Fmt.num(it, 1)} h" }
         val text = when {
@@ -57,7 +58,7 @@ object Digest {
         return DigestContent(title, text, lines.take(MAX_LINES), t?.readiness?.tone ?: t?.recovery?.tone ?: Tone.NEUTRAL)
     }
 
-    fun evening(r: AnalysisResult): DigestContent {
+    fun evening(r: AnalysisResult, plan: RunPlan? = null): DigestContent {
         val t = r.todayMetrics?.takeIf { it.date == r.today }
         val e = r.energy
         val title = if (e != null) "🌙 Dein Tag · Energie ${e.now} (${signedInt(e.now - e.morning)})" else "🌙 Dein Tag"
@@ -86,6 +87,7 @@ object Digest {
             val emoji = if (sv >= 50) "😰" else "😌"
             lines += "$emoji Stress Ø ${Fmt.int(sv)} – ${HeartExtras.stressLabel(sv).first}"
         }
+        plan?.let { p -> Motivation.digestLine(p, r, morning = false)?.let { lines += it } }
         val rn = e?.readinessNow
         if (rn != null) lines += "🎯 Trainingsbereitschaft jetzt $rn (morgens ${e.readinessMorning})"
         r.sleep.needTonightMin?.let { need ->

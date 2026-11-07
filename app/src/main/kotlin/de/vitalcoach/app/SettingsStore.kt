@@ -3,6 +3,10 @@ package de.vitalcoach.app
 import android.content.Context
 import de.vitalcoach.core.DailySnapshot
 import de.vitalcoach.core.DigestContent
+import de.vitalcoach.core.Motivation
+import de.vitalcoach.core.RunPlan
+import java.time.DayOfWeek
+import java.time.LocalDate
 import de.vitalcoach.core.Nicotine
 import de.vitalcoach.core.Sex
 import de.vitalcoach.core.SnapshotCodec
@@ -103,6 +107,41 @@ class SettingsStore(context: Context) {
         val lines = f[4].split(LINE_SEP).filter { it.isNotBlank() }
         return Triple(DigestContent(f[0], f[1], lines, tone), prefs.getLong("digestAt_$kind", 0L), f[3] == "1")
     }
+
+    // ---------- Laufplan ----------
+
+    /** Persönlicher Laufplan (null = keiner angelegt). */
+    var runPlan: RunPlan?
+        get() {
+            if (!prefs.getBoolean("planOn", false)) return null
+            val mask = prefs.getInt("planDays", 0)
+            return RunPlan(
+                days = DayOfWeek.values().filter { mask and (1 shl it.ordinal) != 0 }.toSet(),
+                reminderMinutes = prefs.getInt("planMin", 17 * 60 + 30),
+                ifThen = prefs.getString("planIfThen", null) ?: Motivation.TEMPLATES.first(),
+                startDate = LocalDate.ofEpochDay(prefs.getLong("planStart", LocalDate.now().toEpochDay())),
+                followUp = prefs.getBoolean("planFollow", true),
+            )
+        }
+        set(p) {
+            if (p == null) {
+                prefs.edit().putBoolean("planOn", false).apply()
+                return
+            }
+            prefs.edit()
+                .putBoolean("planOn", true)
+                .putInt("planDays", p.days.fold(0) { acc, d -> acc or (1 shl d.ordinal) })
+                .putInt("planMin", p.reminderMinutes)
+                .putString("planIfThen", p.ifThen)
+                .putLong("planStart", p.startDate.toEpochDay())
+                .putBoolean("planFollow", p.followUp)
+                .apply()
+        }
+
+    /** Tag (Epoch-Tag), an dem „Heute nicht“ gewählt wurde – dann kein Nachhaken mehr. */
+    var runSkipDay: Long
+        get() = prefs.getLong("runSkip", -1L)
+        set(v) = prefs.edit().putLong("runSkip", v).apply()
 
     private companion object {
         const val FIELD_SEP = "\u001E"

@@ -57,6 +57,7 @@ fun TrainingScreen(state: UiState, vm: MainViewModel, padding: PaddingValues) {
             item { Text("Noch keine Daten vorhanden.") }
             return@LazyColumn
         }
+        item { PlanCard(state, vm) }
         item { RecommendationCard(r, vm) }
         item { LoadCard(r, vm) }
         item { AcwrCard(r) }

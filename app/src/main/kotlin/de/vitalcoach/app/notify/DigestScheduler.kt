@@ -92,12 +92,20 @@ object DigestScheduler {
 /** Empfängt den Wecker (→ Zusammenfassung erstellen, nächsten Termin planen) sowie Neustart/Update/Zeitänderung. */
 class DigestAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == DigestScheduler.ACTION_ALARM) {
-            val kind = DigestKind.from(intent.getStringExtra(DigestScheduler.EXTRA_KIND)) ?: return
-            DigestScheduler.runNow(context, kind)
-            DigestScheduler.schedule(context, kind)
-        } else {
-            DigestScheduler.scheduleAll(context)
+        val action = intent.action.orEmpty()
+        when (action) {
+            DigestScheduler.ACTION_ALARM -> {
+                val kind = DigestKind.from(intent.getStringExtra(DigestScheduler.EXTRA_KIND)) ?: return
+                DigestScheduler.runNow(context, kind)
+                DigestScheduler.schedule(context, kind)
+            }
+            RunReminder.ACTION_REMIND, RunReminder.ACTION_FOLLOW_UP, RunReminder.ACTION_SNOOZED,
+            RunReminder.ACTION_SNOOZE, RunReminder.ACTION_SKIP -> RunReminder.onAction(context, action)
+            else -> {
+                // Neustart, App-Update, Zeit-/Zeitzonenwechsel: alles neu planen
+                DigestScheduler.scheduleAll(context)
+                RunReminder.schedule(context)
+            }
         }
     }
 }

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Sync
@@ -107,6 +108,16 @@ fun SettingsScreen(state: UiState, vm: MainViewModel, actions: AppActions) {
             DataSourceCard(state, vm, actions.requestPermissions, actions.openHealthConnect, actions.openSamsungHealth, actions.installHealthConnect)
         }
         item { NotificationCard(state, vm, actions) }
+        item {
+            SectionCard(title = "Laufplan & Lauf-Erinnerung", icon = Icons.AutoMirrored.Filled.DirectionsRun, onClick = { vm.open(Route.PlanEditor) }) {
+                Text(
+                    state.runPlan?.let { p ->
+                        "${p.days.size}× pro Woche · Erinnerung ${de.vitalcoach.core.Motivation.clockFromMidnight(p.reminderMinutes)} Uhr"
+                    } ?: "Noch kein Plan – feste Lauftage mit Erinnerung anlegen",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
         item { ProfileCard(state.profile) { vm.saveProfile(it) } }
         item { AiSettingsCard(state, vm) }
         item {

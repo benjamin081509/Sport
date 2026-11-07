@@ -79,6 +79,8 @@ private val Lavender = Color(0xFFC4B5FD)
 @Composable
 fun TodayScreen(state: UiState, vm: MainViewModel, padding: PaddingValues, onTab: (Tab) -> Unit) {
     val r = state.result
+    val plan = state.runPlan
+    val plannedToday = remember(plan, r) { if (plan != null && r != null) de.vitalcoach.core.Motivation.report(plan, r).todayPlanned else false }
     LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -89,6 +91,7 @@ fun TodayScreen(state: UiState, vm: MainViewModel, padding: PaddingValues, onTab
             return@LazyColumn
         }
         item { HeroCard(r, vm) }
+        if (plan == null || plannedToday) item { RunTodayBanner(state, vm, onTab) }
         if (r.warnings.isNotEmpty()) {
             items(r.warnings.size) { i -> WarningRow(r.warnings[i]) }
         }

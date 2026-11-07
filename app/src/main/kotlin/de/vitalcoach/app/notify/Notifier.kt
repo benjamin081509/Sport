@@ -20,16 +20,25 @@ import de.vitalcoach.core.Tone
 /** Zeigt die täglichen Zusammenfassungen als übersichtliche, ausklappbare Benachrichtigung. */
 object Notifier {
     private const val CHANNEL = "daily_digest"
+    private const val CHANNEL_RUN = "run_reminder"
 
     fun ensureChannel(ctx: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
-        if (nm.getNotificationChannel(CHANNEL) != null) return
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Tageszusammenfassung", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Morgens und abends eine kurze Zusammenfassung deiner wichtigsten Werte"
-            },
-        )
+        if (nm.getNotificationChannel(CHANNEL) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL, "Tageszusammenfassung", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    description = "Morgens und abends eine kurze Zusammenfassung deiner wichtigsten Werte"
+                },
+            )
+        }
+        if (nm.getNotificationChannel(CHANNEL_RUN) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_RUN, "Lauf-Erinnerung", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Erinnert dich an deinen Lauftag – mit Vorschlag passend zu deiner Tagesform"
+                },
+            )
+        }
     }
 
     fun canNotify(ctx: Context): Boolean {
@@ -50,6 +59,38 @@ object Notifier {
     /** Hinweis, wenn keine Zusammenfassung erstellt werden konnte. */
     fun showHint(ctx: Context, kind: DigestKind, title: String, text: String) {
         post(ctx, kind, title, text, text, 0xFF2F6FED.toInt())
+    }
+
+    /** Lauf-Erinnerung (gut sichtbar) mit den Aktionen „In 30 min“ und „Heute nicht“. */
+    @SuppressLint("MissingPermission")
+    fun showRun(ctx: Context, c: DigestContent, withActions: Boolean) {
+        if (!canNotify(ctx)) return
+        ensureChannel(ctx)
+        val open = PendingIntent.getActivity(
+            ctx,
+            RunReminder.NOTIFICATION_ID,
+            Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val b = NotificationCompat.Builder(ctx, CHANNEL_RUN)
+            .setSmallIcon(R.drawable.ic_stat_vital)
+            .setContentTitle(c.title)
+            .setContentText(c.text)
+            .setStyle(NotificationCompat.BigTextStyle().setBigContentTitle(c.title).bigText(c.lines.joinToString("\n")))
+            .setColor(0xFFF97316.toInt())
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+        if (withActions) {
+            b.addAction(0, "In ${RunReminder.SNOOZE_MIN} min", RunReminder.intent(ctx, RunReminder.ACTION_SNOOZE, RunReminder.RC_ACTION_SNOOZE))
+            b.addAction(0, "Heute nicht", RunReminder.intent(ctx, RunReminder.ACTION_SKIP, RunReminder.RC_ACTION_SKIP))
+        }
+        try {
+            NotificationManagerCompat.from(ctx).notify(RunReminder.NOTIFICATION_ID, b.build())
+        } catch (e: SecurityException) {
+            // Benachrichtigungen wurden in der Zwischenzeit verboten
+        }
     }
 
     @SuppressLint("MissingPermission")

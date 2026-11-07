@@ -20,6 +20,7 @@ import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.lifecycleScope
 import de.vitalcoach.app.notify.DigestScheduler
 import de.vitalcoach.app.notify.Notifier
+import de.vitalcoach.app.notify.RunReminder
 import de.vitalcoach.app.ui.AppActions
 import de.vitalcoach.app.ui.VitalApp
 import kotlinx.coroutines.launch
@@ -44,6 +45,7 @@ class MainActivity : ComponentActivity() {
         showPrivacy = isPrivacyIntent(intent)
         Notifier.ensureChannel(this)
         DigestScheduler.scheduleAll(this)
+        RunReminder.schedule(this)
         val actions = AppActions(
             requestPermissions = ::askHealthPermissions,
             openHealthConnect = ::openHealthConnect,
