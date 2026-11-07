@@ -171,9 +171,21 @@ object Meaning {
         }
         val rm = e.readinessMorning
         val rn = e.readinessNow
-        if (rm != null && rn != null && rm - rn >= 5) parts += "Deine Trainingsbereitschaft ist dadurch von $rm auf $rn gesunken."
+        if (rm != null && rn != null && rm - rn >= 3) parts += readinessDrop(e)
         if (!e.hasDayHeartRate) parts += "Tagsüber fehlen Pulsdaten – Stress und Alltag sind noch nicht berücksichtigt."
         return parts.joinToString(" ")
+    }
+
+    /** „Trainingsbereitschaft 79 → 54 (Training −24, Stress & Alltag −1).“ */
+    fun readinessDrop(e: EnergyReport): String {
+        val rm = e.readinessMorning ?: return ""
+        val rn = e.readinessNow ?: return ""
+        val why = listOfNotNull(
+            e.readinessDropTraining.takeIf { it >= 1.0 }?.let { "Training −${it.roundToInt()}" },
+            e.readinessDropDaily.takeIf { it >= 1.0 }?.let { "Stress & Alltag −${it.roundToInt()}" },
+        ).joinToString(", ")
+        return "Trainingsbereitschaft heute früh $rm, jetzt $rn" + (if (why.isNotEmpty()) " ($why)." else ".") +
+            if (e.readinessDropTraining >= 15) " Nach deinem Training heute besser nur noch locker bewegen." else ""
     }
 
     private fun round5(x: Double): Int = ((x / 5.0).roundToInt() * 5).coerceAtLeast(5)

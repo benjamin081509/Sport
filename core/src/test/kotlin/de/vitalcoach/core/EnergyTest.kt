@@ -59,7 +59,27 @@ class EnergyTest {
         val s = Energy.simulate(10.0, wake, wake.plusSeconds(6 * 3600), emptyList(), listOf(run(1.0, 120, 300.0)), null, 50.0, 190, Sex.MALE)
         check(s.curve.all { it.value in 0.0..100.0 })
         assertEquals(0.0, s.end, 0.0001)
-        assertEquals(40, Energy.readinessNow(70, Energy.simulate(80.0, wake, wake.plusSeconds(3600), emptyList(), listOf(run(0.0, 30, 300.0)), null, 50.0, 190, Sex.MALE)))
+    }
+
+    @Test
+    fun trainingLowersReadinessClearly() {
+        val end = wake.plusSeconds(9 * 3600 + 45 * 60)
+        val now = end.plusSeconds(3600)
+        // Richtwerte bei mittlerer Fitness (CTL 40) direkt nach dem Training
+        assertEquals(11.7, Energy.trainingDrop(listOf(run(9.0, 45, 40.0)), 40.0, end), 0.2)
+        assertEquals(24.3, Energy.trainingDrop(listOf(run(9.0, 45, 100.0)), 40.0, end), 0.2)
+        assertEquals(31.6, Energy.trainingDrop(listOf(run(9.0, 45, 150.0)), 40.0, end), 0.2)
+        // Wenig Fitness → stärkerer Abzug; der Abzug klingt über den Tag ab
+        check(Energy.trainingDrop(listOf(run(9.0, 45, 100.0)), 12.0, end) > 29.0)
+        check(Energy.trainingDrop(listOf(run(9.0, 45, 100.0)), 40.0, end.plusSeconds(8 * 3600)) < 20.0)
+        assertEquals(0.0, Energy.trainingDrop(emptyList(), 40.0, now), 0.0)
+
+        // Situation aus der Rückmeldung: Bereitschaft 79 am Morgen, 45 min fordernder Lauf um 15 Uhr, eine Stunde später
+        val sim = Energy.simulate(79.0, wake, now, emptyList(), listOf(run(9.0, 45, 85.0)), null, 50.0, 190, Sex.MALE)
+        val rn = Energy.readinessNow(79, sim, listOf(run(9.0, 45, 85.0)), 12.0, now)!!
+        check(rn.value in 45..58, "Bereitschaft nach fordernder Einheit: $rn")
+        check(rn.dropTraining > 20, rn.toString())
+        assertEquals(0.0, rn.dropDaily, 0.0001)
     }
 
     @Test

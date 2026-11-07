@@ -28,7 +28,7 @@ data class EnergyReport(
     val drainTraining: Double,
     val charge: Double,
     val readinessMorning: Int?,
-    /** Trainingsbereitschaft jetzt: Morgenwert minus Belastung durch Training, Stress und Alltag seit dem Aufwachen. */
+    /** Trainingsbereitschaft jetzt: Morgenwert minus Abzug für Trainings und für Stress/Alltag seit dem Aufwachen. */
     val readinessNow: Int?,
     /** Letzte Tage (inkl. heute) für den Verlauf. */
     val history: List<EnergyDay>,
@@ -36,7 +36,13 @@ data class EnergyReport(
     val tone: Tone,
     /** true, wenn tagsüber Pulsdaten vorlagen (sonst nur Wachzeit und Trainings berücksichtigt). */
     val hasDayHeartRate: Boolean,
+    /** Abzug von der Trainingsbereitschaft durch heutige Trainings bzw. durch Stress und Alltag (Punkte). */
+    val readinessDropTraining: Double = 0.0,
+    val readinessDropDaily: Double = 0.0,
 )
+
+/** Trainingsbereitschaft im Tagesverlauf mit Aufschlüsselung des Abzugs. */
+data class ReadinessNow(val value: Int, val dropTraining: Double, val dropDaily: Double)
 
 /**
  * Energie-Modell („wie voll ist dein Akku?“), angelehnt an das Prinzip von Garmin Body Battery / Firstbeat:
@@ -52,8 +58,16 @@ object Energy {
     const val STRESS_MAX_PER_H = 3.5
     const val REST_CHARGE_PER_H = 2.0
     const val PER_TRIMP = 0.2
-    /** Anteil der Belastung (ohne reine Wachzeit), um den die Trainingsbereitschaft über den Tag sinkt. */
+    /** Anteil der Belastung durch Stress und Alltag, um den die Trainingsbereitschaft über den Tag sinkt. */
     const val READINESS_FACTOR = 0.5
+    /** Höchster Abzug von der Trainingsbereitschaft durch Trainings am selben Tag. */
+    const val TRAINING_DROP_MAX = 50.0
+    /** Trainingspunkte, bei denen ~63 % des Höchstabzugs erreicht sind (sättigende Kurve). */
+    const val TRAINING_DROP_TRIMP = 150.0
+    /** Abklingzeit (Stunden) der akuten Ermüdung nach einem Training. */
+    const val TRAINING_DROP_DECAY_H = 24.0
+    /** Fitness-Wert (CTL), bei dem die Trainingspunkte 1:1 zählen; weniger Fitness → stärkerer Abzug. */
+    const val TRAINING_DROP_CTL_REF = 40.0
     private const val SLOT_SEC = 15L * 60
 
     data class Sim(
@@ -66,8 +80,10 @@ object Energy {
         val hadHeartRate: Boolean,
     ) {
         val end: Double get() = curve.last().value
-        /** Belastung ohne reine Wachzeit – senkt die Trainingsbereitschaft. */
+        /** Belastung ohne reine Wachzeit. */
         val load: Double get() = max(0.0, training + everyday + stress - charge)
+        /** Belastung durch Stress und Alltag (ohne Training). */
+        val dailyLoad: Double get() = max(0.0, everyday + stress - charge)
     }
 
     /**
@@ -170,8 +186,29 @@ object Energy {
         else -> "fast leer" to Tone.BAD
     }
 
-    fun readinessNow(morning: Int?, sim: Sim): Int? =
-        morning?.let { (it - READINESS_FACTOR * sim.load).roundToInt().coerceIn(0, 100) }
+    /**
+     * Abzug von der Trainingsbereitschaft durch Trainings seit dem Aufwachen (wie bei der Garmin Training Readiness:
+     * direkt nach einer harten Einheit ist man nicht bereit für die nächste). Sättigend in den Trainingspunkten,
+     * stärker bei niedrigem Fitness-Niveau (Faktor 0,7–1,4) und abklingend mit der Zeit seit Trainingsende.
+     * Richtwerte bei mittlerer Fitness: leicht (40 Pkt.) ≈ −12, fordernd (100) ≈ −24, hart (150) ≈ −32, sehr hart (250) ≈ −41.
+     */
+    fun trainingDrop(workouts: List<WorkoutAnalysis>, ctlBefore: Double, now: Instant): Double {
+        if (workouts.isEmpty()) return 0.0
+        val scale = (TRAINING_DROP_CTL_REF / max(ctlBefore, 1.0)).clamp(0.7, 1.4)
+        val eff = workouts.filter { !it.workout.start.isAfter(now) }.sumOf { w ->
+            val h = max(0.0, Duration.between(w.workout.end, now).seconds / 3600.0)
+            w.trimp * kotlin.math.exp(-h / TRAINING_DROP_DECAY_H)
+        } * scale
+        return TRAINING_DROP_MAX * (1.0 - kotlin.math.exp(-eff / TRAINING_DROP_TRIMP))
+    }
+
+    fun readinessNow(morning: Int?, sim: Sim, workouts: List<WorkoutAnalysis>, ctlBefore: Double, now: Instant): ReadinessNow? {
+        val m = morning ?: return null
+        val dropTraining = trainingDrop(workouts, ctlBefore, now)
+        val dropDaily = READINESS_FACTOR * sim.dailyLoad
+        val v = (m - dropTraining - dropDaily).roundToInt().coerceIn(0, m)
+        return ReadinessNow(v, dropTraining, dropDaily)
+    }
 
     private fun overlapSec(a0: Instant, a1: Instant, b0: Instant, b1: Instant): Long {
         val s = maxOf(a0, b0)

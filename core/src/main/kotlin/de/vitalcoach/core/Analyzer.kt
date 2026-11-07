@@ -701,7 +701,7 @@ object Analyzer {
         today: LocalDate,
         zone: ZoneId,
     ): EnergyReport? {
-        fun sim(day: DayMetrics): Pair<Instant, Energy.Sim>? {
+        fun sim(day: DayMetrics): Triple<Instant, Energy.Sim, List<WorkoutAnalysis>>? {
             val e0 = day.recovery?.value ?: return null
             val wake = day.sleep?.end ?: day.date.atTime(7, 0).atZone(zone).toInstant()
             val bed = nightByDate[day.date.plusDays(1)]?.start ?: day.date.atTime(23, 0).atZone(zone).toInstant()
@@ -710,10 +710,10 @@ object Analyzer {
                 .filter { it.workout.end.isAfter(wake) && it.workout.start.isBefore(end) }
             val samples = if (end.isAfter(wake)) hr.sliceByTime(wake, end) { it.time } else emptyList()
             val steps = if (day.date in hourlyDates) hourlyMap else null
-            return wake to Energy.simulate(e0.toDouble(), wake, end, samples, ws, steps, restRef, hrMax, sex)
+            return Triple(wake, Energy.simulate(e0.toDouble(), wake, end, samples, ws, steps, restRef, hrMax, sex), ws)
         }
         val t = days.lastOrNull()?.takeIf { it.date == today } ?: return null
-        val (wake, s) = sim(t) ?: return null
+        val (wake, s, todaysWorkouts) = sim(t) ?: return null
         val history = days.takeLast(8).mapNotNull { d ->
             val r = if (d === t) s else sim(d)?.second
             r?.let { EnergyDay(d.date, it.curve.first().value.roundToInt(), it.end.roundToInt()) }
@@ -721,6 +721,9 @@ object Analyzer {
         val nowV = s.end.roundToInt()
         val (label, tone) = Energy.label(nowV)
         val readinessMorning = t.readiness?.value
+        // Fitness vor dem heutigen Training (der Wert von heute enthält das Training bereits)
+        val ctlBefore = days.getOrNull(days.size - 2)?.ctl ?: t.ctl
+        val rn = Energy.readinessNow(readinessMorning, s, todaysWorkouts, ctlBefore, now)
         return EnergyReport(
             now = nowV,
             morning = s.curve.first().value.roundToInt(),
@@ -732,11 +735,13 @@ object Analyzer {
             drainTraining = s.training,
             charge = s.charge,
             readinessMorning = readinessMorning,
-            readinessNow = Energy.readinessNow(readinessMorning, s),
+            readinessNow = rn?.value,
             history = history,
             label = label,
             tone = tone,
             hasDayHeartRate = s.hadHeartRate,
+            readinessDropTraining = rn?.dropTraining ?: 0.0,
+            readinessDropDaily = rn?.dropDaily ?: 0.0,
         )
     }
 

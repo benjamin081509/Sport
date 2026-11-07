@@ -84,7 +84,11 @@ fun MetricDetailScreen(key: MetricKey, r: AnalysisResult?, vm: MainViewModel) {
                 item { CoachCard(Coach.recovery(r), title = "Coach · Erholung") }
             }
             MetricKey.READINESS -> {
-                item { ScoreHero(r.todayMetrics?.readiness, "Bereitschaft") }
+                item { ScoreHero(r.todayMetrics?.readiness, "Bereitschaft heute früh") }
+                r.energy?.let { e ->
+                    val drop = (e.readinessMorning ?: 0) - (e.readinessNow ?: 0)
+                    if (drop >= 3) item { MeaningBox(Meaning.readinessDrop(e), Palette.Orange) }
+                }
                 item {
                     SectionCard(title = "30 Tage") {
                         LineChart(listOf(Series(days30.map { it.readiness?.value?.toDouble() }, Palette.Blue, "Bereitschaft")), band = 60.0 to 75.0, startLabel = start, endLabel = "heute")

@@ -188,7 +188,9 @@ object Explain {
                 "Erholungswert. Danach in 15-Minuten-Schritten: Wachzeit −1,2 Punkte/h; Stress in Ruhephasen (Stunden mit < 100 Schritten) " +
                 "bis −3,5 Punkte/h, proportional zum Stresswert aus Puls über Ruhepuls; Bewegung im Alltag und Training −0,2 Punkte je " +
                 "Trainingspunkt (TRIMP); sehr entspannte Ruhe (Stresswert < 10) lädt bis +2 Punkte/h auf. Die Trainingsbereitschaft sinkt " +
-                "über den Tag um die Hälfte der Belastung durch Training, Stress und Alltag (nicht durch die reine Wachzeit). Ohne HRV-Messung " +
+                "über den Tag: durch Trainings um 50 × (1 − e^(−TRIMP/150)) Punkte – die Trainingspunkte zählen bei niedriger Fitness stärker " +
+                "(Faktor 40 ÷ Fitness-Wert, 0,7–1,4) und klingen mit 24 h Zeitkonstante ab (leicht ≈ −12, fordernd ≈ −24, hart ≈ −32) –, " +
+                "dazu um die Hälfte der Belastung durch Stress und Alltag (nicht durch die reine Wachzeit). Ohne HRV-Messung " +
                 "tagsüber ist das eine Schätzung – aussagekräftig ist vor allem der Verlauf."
     }
 }
