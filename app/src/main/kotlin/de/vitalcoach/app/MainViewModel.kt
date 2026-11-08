@@ -39,6 +39,7 @@ sealed interface Route {
     data object Privacy : Route
     data object Settings : Route
     data object PlanEditor : Route
+    data object RunRoutes : Route
 }
 
 sealed interface AiState {

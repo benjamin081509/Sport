@@ -80,6 +80,7 @@ fun VitalApp(vm: MainViewModel, actions: AppActions, showPrivacy: Boolean, onPri
                 Route.Privacy -> PrivacyScreen(onBack = { vm.back() })
                 Route.Settings -> SettingsScreen(state, vm, actions)
                 Route.PlanEditor -> RunPlanScreen(state, vm, actions)
+                Route.RunRoutes -> RoutesScreen(state, vm)
                 null -> MainTabs(state, vm, tab, { tab = it }, actions)
             }
         }

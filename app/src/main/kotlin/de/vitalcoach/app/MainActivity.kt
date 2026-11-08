@@ -19,6 +19,7 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.lifecycleScope
 import de.vitalcoach.app.notify.DigestScheduler
+import de.vitalcoach.app.outdoor.Locator
 import de.vitalcoach.app.notify.Notifier
 import de.vitalcoach.app.notify.RunReminder
 import de.vitalcoach.app.ui.AppActions
@@ -43,9 +44,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         showPrivacy = isPrivacyIntent(intent)
+        handleOpen(intent)
         Notifier.ensureChannel(this)
         DigestScheduler.scheduleAll(this)
         RunReminder.schedule(this)
+        // Standort für das Wetter am Lauftag aktualisieren (nur wenn erlaubt, bleibt auf dem Gerät)
+        if (SettingsStore(this).runPlan != null && Locator.hasPermission(this)) lifecycleScope.launch { Locator.current(this@MainActivity) }
         val actions = AppActions(
             requestPermissions = ::askHealthPermissions,
             openHealthConnect = ::openHealthConnect,
@@ -70,6 +74,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         showPrivacy = isPrivacyIntent(intent)
+        handleOpen(intent)
     }
 
     override fun onResume() {
@@ -108,6 +113,19 @@ class MainActivity : ComponentActivity() {
             store.askedBackgroundAccess = true
             askHealthPermissions()
         }
+    }
+
+    /** Aus der Lauf-Erinnerung: direkt die Strecken-Vorschläge öffnen. */
+    private fun handleOpen(i: Intent?) {
+        if (i != null && i.getStringExtra(EXTRA_OPEN) == OPEN_ROUTES && SettingsStore(this).onboardingDone) {
+            if (vm.backStack.lastOrNull() != Route.RunRoutes) vm.open(Route.RunRoutes)
+            i.removeExtra(EXTRA_OPEN)
+        }
+    }
+
+    companion object {
+        const val EXTRA_OPEN = "open"
+        const val OPEN_ROUTES = "routes"
     }
 
     private fun isPrivacyIntent(i: Intent?): Boolean =

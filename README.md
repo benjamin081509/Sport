@@ -11,6 +11,7 @@ VitalCoach ist eine Android-App für dein **Samsung Galaxy S23**. Sie liest die 
 | **Analysen** | Herzgesundheit (AHA Life's Essential 8), Herz & Kreislauf (Ø Puls, HRV-/Ruhepuls-Trends bis 1 Jahr, Pulserholung HRR, Stabilität, Zonen), Stress-Index, Fitness & Leistung (VO2max, Fitnessalter, aerobe Effizienz, Laktatschwelle, Pace), Bewegung & Alltag (inaktive Zeit, Tagesverteilung, Wochenbilanz, Alltagsbelastung), Langzeit-Trends, persönliche Normalwerte, Zusammenhänge in deinen Daten |
 | **Benachrichtigungen** | Morgens (Standard 7:30) und abends (21:30) eine übersichtliche Zusammenfassung: Schlaf, Erholung, Empfehlung bzw. Energie, Training, Schritte, Stress, Schlafbedarf – Uhrzeiten in den Einstellungen änderbar |
 | **Laufplan** | Feste Lauftage, Wenn-Dann-Plan und Erinnerung zur gewählten Uhrzeit mit Vorschlag passend zur Tagesform; Nachhaken nach 2 h, „In 30 min“ / „Heute nicht“; Wochenziel mit Häkchen, Serie und Gewohnheits-Fortschritt |
+| **Training & Strecken** | Wochenstruktur je Lauftag (locker / Intervalle / langer Lauf) mit Steigerung und Entlastungswochen, jede Einheit auch als Hometrainer-Variante; Wetter-Check zur Laufzeit; Rundkurse um den Standort auf Karte oder Satellitenbild, mit Google-Maps-Link |
 | **Diagramme** | Alle Verläufe antippen oder mit dem Finger abfahren: eine Blase zeigt Datum bzw. Uhrzeit („Gestern“, „vor 1 h“) und die Werte |
 | **KI-Coach** | Eingebauter Coach (offline, kostenlos) **plus** optional eine ausführliche Analyse durch die KI *Claude*, der du auch eigene Fragen stellen kannst |
 

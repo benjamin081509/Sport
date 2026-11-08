@@ -13,7 +13,7 @@ object Digest {
     /** Ob die Nacht zu heute schon in den Daten ist (Samsung Health synchronisiert teils verzögert). */
     fun hasLastNight(r: AnalysisResult): Boolean = r.todayMetrics?.sleep?.date == r.today
 
-    fun morning(r: AnalysisResult, plan: RunPlan? = null): DigestContent {
+    fun morning(r: AnalysisResult, plan: RunPlan? = null, weatherAtRun: WeatherVerdict? = null): DigestContent {
         val t = r.todayMetrics
         val night = t?.sleep?.takeIf { it.date == r.today }
         val rec = t?.recovery?.value
@@ -47,7 +47,7 @@ object Digest {
         if (rc != null) {
             lines += "🏃 ${rc.title}" + if (rc.targetLoadHigh > 0) ": ${rc.zone2MinLow}–${rc.zone2MinHigh} min Zone 2" else ""
         }
-        plan?.let { p -> Motivation.digestLine(p, r, morning = true)?.let { lines += it } }
+        plan?.let { p -> Motivation.digestLine(p, r, morning = true, weather = weatherAtRun)?.let { lines += it } }
         r.warnings.firstOrNull()?.let { lines += "⚠️ ${it.title}" }
         r.sleep.debt7H?.let { if (it >= 3) lines += "⏳ Schlafschuld (7 Tage): ${Fmt.num(it, 1)} h" }
         val text = when {

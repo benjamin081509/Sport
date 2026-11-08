@@ -14,7 +14,11 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import de.vitalcoach.app.SettingsStore
+import de.vitalcoach.app.outdoor.WeatherRepo
 import de.vitalcoach.core.Motivation
+import de.vitalcoach.core.Weather
+import de.vitalcoach.core.WeatherVerdict
+import java.time.LocalDateTime
 import de.vitalcoach.core.RunPlan
 import java.time.LocalDate
 import java.time.ZonedDateTime
@@ -123,6 +127,16 @@ object RunReminder {
     }
 }
 
+/** Wetter-Einschätzung für „jetzt + [minutes]“ am zuletzt bekannten Standort (null ohne Standort/Netz). */
+suspend fun weatherIn(store: SettingsStore, minutes: Long): WeatherVerdict? = weatherAt(store, LocalDateTime.now().plusMinutes(minutes))
+
+suspend fun weatherAt(store: SettingsStore, at: LocalDateTime): WeatherVerdict? {
+    val loc = store.homeLocation ?: return null
+    val f = WeatherRepo.forecast(loc) ?: return null
+    val h = Weather.at(f, at) ?: return null
+    return Weather.verdict(h, f.sunset[h.time.toLocalDate()])
+}
+
 /** Erstellt die Lauf-Erinnerung mit aktuellen Werten (Bereitschaft, Wochenziel) – oder lässt sie weg, wenn schon trainiert wurde. */
 class RunReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
@@ -144,7 +158,7 @@ class RunReminderWorker(context: Context, params: WorkerParameters) : CoroutineW
                     if (rep.suggestion.restAdvised) return Result.success()
                     Motivation.followUp(plan, r)
                 } else {
-                    Motivation.reminder(plan, r)
+                    Motivation.reminder(plan, r, weatherIn(store, 30))
                 }
             }
             // Ohne aktuelle Daten: nur die Erinnerung, kein Nachhaken (wir wissen nicht, ob schon trainiert wurde)

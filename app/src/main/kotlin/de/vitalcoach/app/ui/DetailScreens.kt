@@ -346,8 +346,8 @@ fun WorkoutDetailScreen(startEpochSec: Long, r: AnalysisResult?, vm: MainViewMod
                 w.workout.distanceMeters?.let { KeyValue("Distanz", "${Fmt.num(it / 1000, 2)} km") }
                 w.paceSecPerKm?.let {
                     KeyValue(
-                        if (w.workout.type == de.vitalcoach.core.SportType.CYCLING) "Ø Geschwindigkeit" else "Ø Tempo",
-                        if (w.workout.type == de.vitalcoach.core.SportType.CYCLING) "${Fmt.num(3600.0 / it, 1)} km/h" else Fmt.pace(it),
+                        if (w.workout.type == de.vitalcoach.core.SportType.CYCLING || w.workout.type == de.vitalcoach.core.SportType.INDOOR_CYCLING) "Ø Geschwindigkeit" else "Ø Tempo",
+                        if (w.workout.type == de.vitalcoach.core.SportType.CYCLING || w.workout.type == de.vitalcoach.core.SportType.INDOOR_CYCLING) "${Fmt.num(3600.0 / it, 1)} km/h" else Fmt.pace(it),
                     )
                 }
                 w.avgHr?.let { KeyValue("Ø Puls", "${Fmt.int(it)} bpm") }

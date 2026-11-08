@@ -82,7 +82,7 @@ class MotivationTest {
         val tuesdayPlan = plan.copy(days = setOf(r.today.dayOfWeek))
         val morning = Motivation.digestLine(tuesdayPlan, r, morning = true)
         val rep = Motivation.report(tuesdayPlan, r)
-        if (!rep.todayDone && !rep.suggestion.restAdvised) ok(morning!!.startsWith("🎒 Heute Lauftag (17:30)"), morning.toString())
+        if (!rep.todayDone && !rep.suggestion.restAdvised) ok(morning!!.startsWith("🎒 Heute (17:30): "), morning.toString())
         val evening = Digest.evening(r, plan)
         ok(evening.lines.any { it.startsWith("🎯 Woche ") }, evening.toString())
         ok(evening.lines.size <= Digest.MAX_LINES)

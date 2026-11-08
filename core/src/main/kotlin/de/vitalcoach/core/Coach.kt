@@ -410,7 +410,7 @@ object Coach {
             append("Belastung: ${Fmt.int(w.trimp)} TRIMP")
             if (w.estimated) append(" (geschätzt – keine Pulsdaten)")
             append(". Charakter: ${w.focus}. ")
-            w.paceSecPerKm?.let { append(if (w.workout.type == SportType.CYCLING) "Ø ${Fmt.num(3600.0 / it, 1)} km/h. " else "Tempo: ${Fmt.pace(it)}. ") }
+            w.paceSecPerKm?.let { append(if (w.workout.type == SportType.CYCLING || w.workout.type == SportType.INDOOR_CYCLING) "Ø ${Fmt.num(3600.0 / it, 1)} km/h. " else "Tempo: ${Fmt.pace(it)}. ") }
             w.vo2Estimate?.let { append("Geschätzte VO2max aus diesem Lauf: ${Fmt.num(it, 1)}. ") }
             val ctl = r.load.ctl.coerceAtLeast(1.0)
             val rel = w.trimp / ctl

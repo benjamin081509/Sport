@@ -296,7 +296,7 @@ class HealthConnectRepository(private val context: Context) {
         } else {
             null
         }
-        val power = if (type == SportType.CYCLING) {
+        val power = if (type == SportType.CYCLING || type == SportType.INDOOR_CYCLING) {
             try {
                 client.aggregate(AggregateRequest(metrics = setOf(PowerRecord.POWER_AVG), timeRangeFilter = range))[PowerRecord.POWER_AVG]?.inWatts
             } catch (t: Throwable) {
@@ -324,7 +324,7 @@ class HealthConnectRepository(private val context: Context) {
         ExerciseSessionRecord.EXERCISE_TYPE_WALKING -> SportType.WALKING
         ExerciseSessionRecord.EXERCISE_TYPE_HIKING -> SportType.HIKING
         ExerciseSessionRecord.EXERCISE_TYPE_BIKING,
-        ExerciseSessionRecord.EXERCISE_TYPE_BIKING_STATIONARY -> SportType.CYCLING
+        ExerciseSessionRecord.EXERCISE_TYPE_BIKING_STATIONARY -> SportType.INDOOR_CYCLING
         ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_POOL,
         ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_OPEN_WATER -> SportType.SWIMMING
         ExerciseSessionRecord.EXERCISE_TYPE_ROWING,
@@ -360,7 +360,7 @@ class HealthConnectRepository(private val context: Context) {
         /** Health-Connect-Berechtigung für das Lesen im Hintergrund (Benachrichtigungen). */
         const val PERMISSION_BACKGROUND = "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND"
         private val DISTANCE_SPORTS = setOf(
-            SportType.RUNNING, SportType.WALKING, SportType.HIKING, SportType.CYCLING, SportType.SWIMMING, SportType.ROWING,
+            SportType.RUNNING, SportType.WALKING, SportType.HIKING, SportType.CYCLING, SportType.INDOOR_CYCLING, SportType.SWIMMING, SportType.ROWING,
         )
     }
 }

@@ -3,6 +3,11 @@
 
     <!-- Nur für den optionalen KI-Coach (Claude). Gesundheitsdaten werden sonst nie übertragen. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Standort nur in der App: für Strecken-Vorschläge rund um dich und das Wetter am Lauftag -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
     <!-- Health Connect: ausschließlich LESE-Berechtigungen -->
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />

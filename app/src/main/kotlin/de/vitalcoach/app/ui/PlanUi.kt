@@ -34,6 +34,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import de.vitalcoach.app.outdoor.Locator
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,7 +53,10 @@ import de.vitalcoach.app.Route
 import de.vitalcoach.app.Tab
 import de.vitalcoach.app.UiState
 import de.vitalcoach.core.Fmt
+import de.vitalcoach.core.Coaching
 import de.vitalcoach.core.Motivation
+import de.vitalcoach.core.SessionKind
+import de.vitalcoach.core.SessionPlan
 import de.vitalcoach.core.PlanWeek
 import de.vitalcoach.core.RunPlan
 import java.time.DayOfWeek
@@ -111,8 +119,20 @@ fun RunTodayBanner(state: UiState, vm: MainViewModel, onTab: (Tab) -> Unit) {
                         if (s.restAdvised) "Lauftag – heute lieber Pause" else "Heute ist Lauftag · ${Motivation.clockFromMidnight(plan.reminderMinutes)}",
                         style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.SemiBold,
                     )
-                    Text(s.title + if (!s.restAdvised) " · Zone 2" else "", style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                    Text(s.title, style = MaterialTheme.typography.bodyMedium, color = Color.White)
                     Text(Motivation.weekLine(rep).removePrefix("🎯 "), style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f))
+                }
+            }
+            if (!done && !rep.suggestion.restAdvised) {
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = 0.22f))
+                        .clickable { vm.open(Route.RunRoutes) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Text("🗺️ Strecken", style = MaterialTheme.typography.labelLarge, color = Color.White)
                 }
             }
         }
@@ -139,8 +159,13 @@ fun PlanCard(state: UiState, vm: MainViewModel) {
         return
     }
     val rep = remember(plan, r) { Motivation.report(plan, r) }
+    val week = remember(plan, r) { Coaching.week(plan, r) }
+    val roles = remember(plan) { Coaching.roles(plan.days) }
+    val todaySession = remember(plan, r) { Coaching.today(plan, r) }
     SectionCard(title = "Mein Laufplan", icon = Icons.AutoMirrored.Filled.DirectionsRun, onClick = { vm.open(Route.PlanEditor) }) {
-        WeekStrip(rep.week)
+        Text(week.phase, style = MaterialTheme.typography.labelLarge, color = if (week.deload) Palette.Teal else Palette.Orange)
+        Spacer(Modifier.height(8.dp))
+        WeekStrip(rep.week, roles)
         Spacer(Modifier.height(14.dp))
         Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
@@ -177,10 +202,9 @@ fun PlanCard(state: UiState, vm: MainViewModel) {
             goalName = "Wochenziel",
         )
         Spacer(Modifier.height(10.dp))
-        val s = rep.suggestion
         when {
             rep.todayPlanned && rep.todayDone -> MeaningBox("Heute erledigt – stark! Jede Einheit macht den nächsten Lauf leichter.", Palette.Good)
-            rep.todayPlanned -> MeaningBox("Heute: ${s.title} – ${s.detail}", if (s.restAdvised) Palette.Bad else Palette.Orange)
+            rep.todayPlanned && todaySession != null -> TodaySessionBox(todaySession) { vm.open(Route.RunRoutes) }
             else -> rep.nextPlanned?.let { d ->
                 Text(
                     "Nächster Lauftag: ${dayTip(d).substringAfter(" · ").ifEmpty { dayTip(d) }} · Erinnerung ${Motivation.clockFromMidnight(plan.reminderMinutes)} Uhr",
@@ -188,14 +212,73 @@ fun PlanCard(state: UiState, vm: MainViewModel) {
                 )
             }
         }
+        Spacer(Modifier.height(12.dp))
+        Text("Diese Woche", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        week.sessions.forEach { ses ->
+            val done = rep.week.days.firstOrNull { it.date == ses.date }?.done == true
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.Top) {
+                Text(
+                    SHORT[ses.date.dayOfWeek.value - 1],
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.width(30.dp),
+                    color = if (ses.date == r.today) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(ses.kind.emoji, modifier = Modifier.width(26.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(ses.title + if (done) "  ✓" else "", style = MaterialTheme.typography.bodyMedium, color = if (done) Palette.Good else MaterialTheme.colorScheme.onSurface)
+                    if (ses.kind != SessionKind.REST) {
+                        Text(
+                            "≈ ${Fmt.num(ses.targetKm, 1)} km · oder ${ses.bikeMinutes} min Hometrainer",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
         Spacer(Modifier.height(8.dp))
         MeaningBox("💭 ${plan.ifThen}", Palette.Purple)
     }
 }
 
+/** Heutige Einheit: Lauf, Hometrainer-Alternative, Zweck und Strecken-Knopf. */
+@Composable
+private fun TodaySessionBox(s: SessionPlan, onRoutes: () -> Unit) {
+    val color = when (s.kind) {
+        SessionKind.QUALITY -> Palette.Bad
+        SessionKind.LONG -> Palette.Blue
+        SessionKind.EASY -> Palette.Good
+        SessionKind.REST -> Palette.Neutral
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(color.copy(alpha = 0.08f))
+            .padding(12.dp),
+    ) {
+        Text("Heute: ${s.kind.emoji} ${s.title}", style = MaterialTheme.typography.titleMedium, color = color)
+        s.note?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall, color = Palette.Warn)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text("🏃 ${s.run}", style = MaterialTheme.typography.bodyMedium)
+        if (s.kind != SessionKind.REST) {
+            Spacer(Modifier.height(4.dp))
+            Text("🚴 ${s.bike}", style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(4.dp))
+            Text("💪 ${s.why}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onRoutes, modifier = Modifier.fillMaxWidth()) { Text("🗺️ Strecken für heute (≈ ${Fmt.num(s.targetKm, 1)} km)") }
+        }
+    }
+}
+
 /** Mo–So mit Häkchen (erledigt), Läufer-Symbol (geplant), Strich (verpasst). */
 @Composable
-fun WeekStrip(week: PlanWeek) {
+fun WeekStrip(week: PlanWeek, roles: Map<DayOfWeek, SessionKind> = emptyMap()) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         week.days.forEachIndexed { i, d ->
             val (bg, border) = when {
@@ -224,7 +307,8 @@ fun WeekStrip(week: PlanWeek) {
                     when {
                         d.done -> Icon(Icons.Filled.Check, contentDescription = "erledigt", tint = Color.White, modifier = Modifier.size(20.dp))
                         d.missed -> Text("–", color = Palette.Bad, style = MaterialTheme.typography.titleMedium)
-                        d.planned -> Icon(Icons.AutoMirrored.Filled.DirectionsRun, contentDescription = "geplant", tint = Palette.Orange, modifier = Modifier.size(18.dp))
+                        d.planned -> roles[d.date.dayOfWeek]?.let { Text(it.emoji, style = MaterialTheme.typography.titleSmall) }
+                            ?: Icon(Icons.AutoMirrored.Filled.DirectionsRun, contentDescription = "geplant", tint = Palette.Orange, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -244,6 +328,12 @@ fun RunPlanScreen(state: UiState, vm: MainViewModel, actions: AppActions) {
     var custom by remember { mutableStateOf(if (existingIdx < 0) existing?.ifThen.orEmpty() else "") }
     var followUp by remember { mutableStateOf(existing?.followUp ?: true) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var locationOk by remember { mutableStateOf(Locator.hasPermission(context)) }
+    val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        locationOk = Locator.hasPermission(context)
+        if (locationOk) scope.launch { Locator.current(context) }
+    }
 
     DetailScaffold("Mein Laufplan", onBack = { vm.back() }) {
         item {
@@ -270,6 +360,12 @@ fun RunPlanScreen(state: UiState, vm: MainViewModel, actions: AppActions) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (days.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    val preview = Coaching.roles(days).entries.sortedBy { it.key.value }
+                        .joinToString(" · ") { (d, k) -> "${SHORT[d.value - 1]} ${k.emoji} ${k.label}" }
+                    Text("Deine Woche: $preview", style = MaterialTheme.typography.bodyMedium)
+                }
                 if (Motivation.hasBackToBack(days)) {
                     Spacer(Modifier.height(6.dp))
                     Text("Hinweis: Zwei Lauftage direkt hintereinander – plane den zweiten eher locker.", style = MaterialTheme.typography.bodySmall, color = Palette.Warn)
@@ -298,6 +394,24 @@ fun RunPlanScreen(state: UiState, vm: MainViewModel, actions: AppActions) {
                 if (!state.notificationsAllowed) {
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(onClick = actions.requestNotifications, modifier = Modifier.fillMaxWidth()) { Text("Benachrichtigungen erlauben") }
+                }
+                Spacer(Modifier.height(8.dp))
+                if (locationOk) {
+                    Text(
+                        "🌦️ Wetter-Check aktiv: Bei Regen, Schnee, Glätte, Sturm oder starkem Frost schlägt die Erinnerung den Hometrainer vor.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    OutlinedButton(
+                        onClick = { locationLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION, android.Manifest.permission.ACCESS_FINE_LOCATION)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Standort für Wetter-Check erlauben") }
+                    Text(
+                        "Dann schlägt die Erinnerung bei schlechtem Wetter automatisch den Hometrainer vor. Der Standort bleibt auf deinem Handy.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
@@ -343,7 +457,11 @@ fun RunPlanScreen(state: UiState, vm: MainViewModel, actions: AppActions) {
                     "• Erinnerung im richtigen Moment, mit einem Vorschlag passend zu deiner Tagesform.\n" +
                     "• Hürden senken: Laufsachen morgens bereitlegen, nach der Arbeit nicht erst hinsetzen.\n" +
                     "• Belohnung koppeln: Lieblings-Podcast oder Hörbuch nur beim Laufen.\n" +
-                    "• Klein anfangen: 10 Minuten zählen – meist läufst du weiter.",
+                    "• Klein anfangen: 10 Minuten zählen – meist läufst du weiter.\n\n" +
+                    "Wochenstruktur: ~80 % locker, eine Intervall-Einheit (möglichst nach einem Ruhetag, nicht direkt vor dem langen Lauf), " +
+                    "langer Lauf am Wochenende. Intervalle steigern sich von Fahrtspiel über 5 × 3 min bis 4 × 4 min (Helgerud et al. 2007), " +
+                    "der lange Lauf wächst um 5 min pro Woche. Jede 4. Woche ist eine Entlastungswoche. Bei niedriger Bereitschaft wird " +
+                    "die Einheit automatisch leichter. Hometrainer: ca. 30 % längere Dauer, Puls ca. 7 Schläge niedriger als beim Laufen.",
             )
         }
         item {

@@ -1261,7 +1261,7 @@ object Analyzer {
             .maxByOrNull { best20.getValue(it.workout.start) }
         val lthr = lthrCand?.let { best20.getValue(it.workout.start) }?.takeIf { it >= 0.85 * hrMax }
         val recent28 = workouts.filter { age(it) in 0..27 }
-        val rides = workouts.filter { it.workout.type == SportType.CYCLING && age(it) <= 90 }
+        val rides = workouts.filter { (it.workout.type == SportType.CYCLING || it.workout.type == SportType.INDOOR_CYCLING) && age(it) <= 90 }
         val power = Stats.mean(rides.mapNotNull { it.workout.avgPowerW }.filter { it > 20 })
         val weight = fitness.weightKg ?: profile.weightKg
         val speed = Stats.mean(rides.mapNotNull { w -> w.workout.distanceMeters?.let { it / 1000.0 / (w.durationMin / 60.0) } }.filter { it in 8.0..60.0 })

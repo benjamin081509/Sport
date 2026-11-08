@@ -61,6 +61,7 @@ enum class SportType(val label: String, val emoji: String, val typicalHrr: Doubl
     WALKING("Gehen", "🚶", 0.40, false),
     HIKING("Wandern", "🥾", 0.50, true),
     CYCLING("Radfahren", "🚴", 0.62, true),
+    INDOOR_CYCLING("Hometrainer", "🚴", 0.62, true),
     SWIMMING("Schwimmen", "🏊", 0.65, true),
     ROWING("Rudern", "🚣", 0.65, true),
     ELLIPTICAL("Crosstrainer", "⛷️", 0.60, true),

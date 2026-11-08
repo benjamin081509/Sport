@@ -39,8 +39,17 @@ class DigestWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                     DigestScheduler.runNow(ctx, kind, attempt + 1, delayMin = RETRY_MIN)
                     return Result.success()
                 }
-                val plan = SettingsStore(ctx).runPlan
-                Notifier.show(ctx, kind, if (kind == DigestKind.MORNING) Digest.morning(r, plan) else Digest.evening(r, plan))
+                val store = SettingsStore(ctx)
+                val plan = store.runPlan
+                if (kind == DigestKind.MORNING) {
+                    // Wetter zur geplanten Laufzeit, falls heute Lauftag ist
+                    val runWeather = plan?.takeIf { r.today.dayOfWeek in it.days }?.let { p ->
+                        weatherAt(store, r.today.atTime(p.reminderMinutes / 60, p.reminderMinutes % 60))
+                    }
+                    Notifier.show(ctx, kind, Digest.morning(r, plan, runWeather))
+                } else {
+                    Notifier.show(ctx, kind, Digest.evening(r, plan))
+                }
             }
             BackgroundAnalysis.Outcome.NoAccess -> Notifier.showHint(
                 ctx, kind, "VitalCoach braucht Zugriff",

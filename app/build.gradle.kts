@@ -93,4 +93,5 @@ dependencies {
     implementation(libs.androidx.health.connect)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.work.runtime)
+    implementation(libs.osmdroid)
 }

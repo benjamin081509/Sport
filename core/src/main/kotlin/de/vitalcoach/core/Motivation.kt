@@ -118,7 +118,18 @@ object Motivation {
             todayPlanned = todayDay.planned,
             todayDone = todayDay.done,
             nextPlanned = next,
-            suggestion = suggestion(r),
+            suggestion = Coaching.today(plan, r)?.let { s ->
+                SessionSuggestion(
+                    s.title,
+                    s.run + (s.note?.let { " ($it)" } ?: ""),
+                    when (s.kind) {
+                        SessionKind.REST -> Tone.BAD
+                        SessionKind.QUALITY, SessionKind.LONG -> Tone.GOOD
+                        SessionKind.EASY -> if (s.note != null) Tone.WARN else Tone.GOOD
+                    },
+                    restAdvised = s.kind == SessionKind.REST,
+                )
+            } ?: suggestion(r),
         )
     }
 
@@ -144,18 +155,39 @@ object Motivation {
         }
     }
 
-    /** Erinnerung zur geplanten Zeit. */
-    fun reminder(plan: RunPlan, r: AnalysisResult): DigestContent {
+    /** Erinnerung zur geplanten Zeit – mit Einheit aus dem Wochenplan, Hometrainer-Alternative und Wetter. */
+    fun reminder(plan: RunPlan, r: AnalysisResult, weather: WeatherVerdict? = null): DigestContent {
         val rep = report(plan, r)
+        val session = Coaching.today(plan, r)
         val s = rep.suggestion
-        val title = if (s.restAdvised) "🏃 Lauftag – heute lieber Pause" else "🏃 Heute ist Lauftag!"
+        val indoor = weather?.bad == true && session != null && session.kind != SessionKind.REST
+        val title = when {
+            s.restAdvised -> "🏃 Lauftag – heute lieber Pause"
+            indoor -> "🚴 Heute Hometrainer statt Lauf"
+            session != null -> "${session.kind.emoji} Heute: ${session.title}"
+            else -> "🏃 Heute ist Lauftag!"
+        }
         val lines = mutableListOf<String>()
-        lines += "⏱️ ${s.title}: ${s.detail}"
+        if (indoor && session != null) {
+            lines += "🌧️ ${weather!!.summary} – ${weather.reason}"
+            lines += "🚴 ${session.bike}"
+            lines += "🏃 Oder doch draußen: ${session.run}"
+        } else {
+            lines += "⏱️ ${s.detail}"
+            weather?.let { w -> lines += "🌤️ ${w.summary}" + if (w.dark) " · dunkel: Stirnlampe/Reflektoren" else "" }
+            if (session != null && session.kind != SessionKind.REST) lines += "🚴 Schlechtwetter-Alternative: ${session.bike.removePrefix("Hometrainer: ")}"
+        }
+        session?.let { if (it.kind != SessionKind.REST) lines += "💪 ${it.why}" }
         if (!s.restAdvised) lines += "💭 ${plan.ifThen}"
         lines += weekLine(rep)
         fitnessLine(r)?.let { lines += it }
         lines += "💡 ${tipOfDay(r.today)}"
-        return DigestContent(title, if (s.restAdvised) s.detail else "${s.title} – jetzt umziehen und los!", lines, s.tone)
+        val text = when {
+            s.restAdvised -> s.detail
+            indoor -> "Draußen ${weather?.reason} – Hometrainer ${session?.bikeMinutes} min"
+            else -> "${s.title} – jetzt umziehen und los!"
+        }
+        return DigestContent(title, text, lines, s.tone)
     }
 
     /** Nachhaken, wenn 2 h nach der Erinnerung noch kein Training da ist. */
@@ -179,12 +211,14 @@ object Motivation {
     )
 
     /** Zeile für die Morgen- bzw. Abend-Zusammenfassung. */
-    fun digestLine(plan: RunPlan, r: AnalysisResult, morning: Boolean): String? {
+    fun digestLine(plan: RunPlan, r: AnalysisResult, morning: Boolean, weather: WeatherVerdict? = null): String? {
         val rep = report(plan, r)
         val time = clockFromMidnight(plan.reminderMinutes)
         return if (morning) {
             when {
-                rep.todayPlanned && !rep.todayDone && !rep.suggestion.restAdvised -> "🎒 Heute Lauftag ($time) – Laufsachen schon jetzt bereitlegen"
+                rep.todayPlanned && !rep.todayDone && weather?.bad == true && !rep.suggestion.restAdvised ->
+                    "🚴 Heute ($time) ${weather.reason} erwartet – Hometrainer einplanen: ${rep.suggestion.title}"
+                rep.todayPlanned && !rep.todayDone && !rep.suggestion.restAdvised -> "🎒 Heute ($time): ${rep.suggestion.title} – Laufsachen schon jetzt bereitlegen"
                 rep.todayPlanned && rep.suggestion.restAdvised -> "🛌 Heute geplanter Lauf – besser verschieben"
                 else -> null
             }

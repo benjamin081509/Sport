@@ -3,6 +3,7 @@ package de.vitalcoach.app
 import android.content.Context
 import de.vitalcoach.core.DailySnapshot
 import de.vitalcoach.core.DigestContent
+import de.vitalcoach.core.GeoPoint
 import de.vitalcoach.core.Motivation
 import de.vitalcoach.core.RunPlan
 import java.time.DayOfWeek
@@ -136,6 +137,17 @@ class SettingsStore(context: Context) {
                 .putLong("planStart", p.startDate.toEpochDay())
                 .putBoolean("planFollow", p.followUp)
                 .apply()
+        }
+
+    /** Zuletzt bestimmter Standort (nur auf dem Gerät gespeichert) – für das Wetter am Lauftag. */
+    var homeLocation: GeoPoint?
+        get() {
+            val lat = prefs.getString("homeLat", null)?.toDoubleOrNull() ?: return null
+            val lon = prefs.getString("homeLon", null)?.toDoubleOrNull() ?: return null
+            return GeoPoint(lat, lon)
+        }
+        set(p) {
+            prefs.edit().putString("homeLat", p?.lat?.toString()).putString("homeLon", p?.lon?.toString()).apply()
         }
 
     /** Tag (Epoch-Tag), an dem „Heute nicht“ gewählt wurde – dann kein Nachhaken mehr. */
